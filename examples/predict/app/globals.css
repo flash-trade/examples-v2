@@ -1,0 +1,291 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   app/globals.css — the design language, v2: minimalist glassmorphism over an
+   indigo void. ONE ambient mood orb gives the frost something to refract
+   (council: two orbs fight). Frost recipe (researched): white 5–7% fill,
+   blur 12px + saturate 180% + brightness 1.08, white/10 border, inset top
+   rim-light; live digits always sit on a darker ~30% film for legibility.
+   THE HARD PART: restraint — glass on a handful of static surfaces only,
+   never scrolling rows; motion only where it means something. TW v4.
+   ───────────────────────────────────────────────────────────────────────── */
+
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #07080f; /* indigo-tinted void — never pure #000 */
+  --color-panel: #0d0f1a; /* solid fallback surfaces (history rows) */
+  --color-panel2: #131628;
+  --color-sheet: #0b0d17;
+  --color-edge: #1e2338;
+  --color-edge2: #2a3050;
+  --color-ink: #eff1ff;
+  --color-dim: #9aa1c4;
+  --color-faint: #5a6184;
+  --color-up: #3ee6c1; /* mint-teal — UP, wins */
+  --color-up-deep: #052019;
+  --color-down: #ff5c87; /* coral-rose — DOWN, losses */
+  --color-down-deep: #2a0612;
+  --color-warn: #ffc857; /* amber — disclosure & warnings ONLY */
+
+  --font-sans: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-unbounded), var(--font-sora), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-jbmono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --ease-mass: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+html {
+  background: var(--color-bg);
+  color-scheme: dark;
+}
+
+body {
+  font-feature-settings: "tnum" 1;
+  overscroll-behavior: none;
+}
+
+::selection {
+  background: rgb(62 230 193 / 0.25);
+}
+
+:where(button, a, [role="button"]):focus-visible {
+  outline: 1.5px solid var(--color-up);
+  outline-offset: 2px;
+}
+:where(input, textarea):focus-visible {
+  outline: none;
+}
+
+/* ── ONE ambient orb — the room's light. Static (no animation: digits stay
+      legible), mood-tinted via body[data-mood]. The glass refracts this. */
+.ambient {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(55% 42% at 28% 8%, var(--mood, rgb(86 96 160 / 0.34)) 0%, transparent 70%),
+    radial-gradient(120% 100% at 50% 120%, rgb(10 12 24 / 0.9) 0%, transparent 60%);
+  transition: opacity 1.2s var(--ease-mass);
+}
+body[data-mood="up"] .ambient {
+  --mood: rgb(62 230 193 / 0.2);
+}
+body[data-mood="down"] .ambient {
+  --mood: rgb(255 92 135 / 0.17);
+}
+
+/* ── The glass system ──────────────────────────────────────────────────────
+   .glass        — standard frosted card (static surfaces only)
+   .glass-strong — elevated frost for inputs / the picker / focal moments
+   .film         — the darker plate that sits BEHIND live digits (legibility)
+   Fallback: agents without backdrop-filter get a solid panel.            */
+.glass,
+.glass-strong {
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 1.25rem;
+  background: rgb(255 255 255 / 0.05);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    0 8px 32px rgb(0 0 0 / 0.36);
+}
+.glass-strong {
+  background: rgb(255 255 255 / 0.07);
+  border-color: rgb(255 255 255 / 0.14);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .glass {
+    backdrop-filter: blur(12px) saturate(180%) brightness(1.08);
+  }
+  .glass-strong {
+    backdrop-filter: blur(16px) saturate(180%) brightness(1.1);
+  }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .glass,
+  .glass-strong {
+    background: rgb(13 15 26 / 0.92);
+  }
+}
+.film {
+  background: rgb(7 8 15 / 0.32);
+  border-radius: 0.875rem;
+}
+
+/* ── Press physics: every tappable scales down 2% on press. */
+.press {
+  transition: transform 180ms var(--ease-mass), filter 180ms var(--ease-mass), opacity 180ms var(--ease-mass),
+    background-color 180ms var(--ease-mass), border-color 180ms var(--ease-mass);
+}
+.press:active {
+  transform: scale(0.98);
+}
+
+/* Accent glow behind the solid primary commit button (style guidance). */
+.cta-glow-up {
+  box-shadow: 0 0 28px rgb(62 230 193 / 0.28);
+}
+.cta-glow-down {
+  box-shadow: 0 0 28px rgb(255 92 135 / 0.24);
+}
+
+/* ── Countdown — depleting bar; urgency in the final fifth. */
+.cd-bar {
+  transform-origin: left center;
+  transition: transform 1s linear, background-color 600ms var(--ease-mass);
+}
+@keyframes urgency-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.cd-urgent {
+  animation: urgency-pulse 1s ease-in-out infinite;
+}
+
+/* ── Settle reveal. */
+@keyframes settle-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.settle-pop {
+  animation: settle-pop 0.6s var(--ease-mass);
+}
+
+/* ── Sheets mount only while open (closed markup cannot exist, so it cannot
+      ever render unstyled). Enter 420ms, exit 260ms (~62%), transform-only. */
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes sheet-out {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.sheet-in {
+  animation: sheet-in 420ms var(--ease-mass);
+  will-change: transform;
+}
+.sheet-out {
+  animation: sheet-out 260ms var(--ease-mass) forwards;
+  will-change: transform;
+}
+.backdrop-in {
+  animation: backdrop-in 260ms ease;
+}
+.backdrop-out {
+  animation: backdrop-out 200ms ease forwards;
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.row-in {
+  animation: row-in 0.35s ease-out;
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.soft-pulse {
+  animation: soft-pulse 1.6s ease-in-out infinite;
+}
+
+/* ── Stake slider — glass track, solid ink thumb (fat-finger friendly). */
+.stake-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(255 255 255 / 0.06);
+  outline: none;
+}
+.stake-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: none;
+  background: var(--color-ink);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.5);
+  cursor: pointer;
+}
+.stake-range::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: none;
+  background: var(--color-ink);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.5);
+  cursor: pointer;
+}
+.stake-range:disabled {
+  opacity: 0.35;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cd-urgent,
+  .settle-pop,
+  .row-in,
+  .soft-pulse,
+  .sheet-in,
+  .backdrop-in {
+    animation: none;
+  }
+  .sheet-out,
+  .backdrop-out {
+    animation-duration: 1ms;
+  }
+  .press,
+  .cd-bar {
+    transition: none;
+  }
+}

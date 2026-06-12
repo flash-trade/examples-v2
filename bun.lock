@@ -43,6 +43,33 @@
         "typescript": "^5.9.0",
       },
     },
+    "examples/predict": {
+      "name": "predict",
+      "version": "0.1.0",
+      "dependencies": {
+        "@coral-xyz/anchor": "^0.30.1",
+        "@magicblock-labs/gum-sdk": "^3.0.10",
+        "@solana/spl-token": "^0.4.14",
+        "@solana/wallet-adapter-base": "^0.9.27",
+        "@solana/wallet-adapter-phantom": "^0.9.29",
+        "@solana/wallet-adapter-react": "^0.15.39",
+        "@solana/wallet-adapter-solflare": "^0.6.28",
+        "@solana/web3.js": "^1.98.2",
+        "flash-v2": "workspace:*",
+        "next": "^15.5.19",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+      },
+      "devDependencies": {
+        "@tailwindcss/postcss": "^4.3.0",
+        "@types/bn.js": "^5.1.5",
+        "@types/node": "^22.10.0",
+        "@types/react": "^19.2.0",
+        "@types/react-dom": "^19.2.0",
+        "tailwindcss": "^4.3.0",
+        "typescript": "^5.9.0",
+      },
+    },
     "examples/tap-trade": {
       "name": "tap-trade",
       "version": "0.2.0",
@@ -844,6 +871,8 @@
     "pngjs": ["pngjs@5.0.0", "", {}, "sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw=="],
 
     "postcss": ["postcss@8.5.15", "", { "dependencies": { "nanoid": "^3.3.12", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A=="],
+
+    "predict": ["predict@workspace:examples/predict"],
 
     "pretty-format": ["pretty-format@29.7.0", "", { "dependencies": { "@jest/schemas": "^29.6.3", "ansi-styles": "^5.0.0", "react-is": "^18.0.0" } }, "sha512-Pdlw/oPxN+aXdmM9R00JVC9WVFoCLTKJvDVLgmJ+qAffBMxsV85l/Lu7sNx4zSzPyoL2euImuEwHhOXdEgNFZQ=="],
 

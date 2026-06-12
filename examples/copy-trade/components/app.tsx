@@ -12,7 +12,7 @@
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { ConnectionProvider, WalletProvider, useAnchorWallet, useWallet } from "@solana/wallet-adapter-react";
 import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
-import { type PositionMetrics } from "flash-v2";
+import { type PositionMetrics, type TradeType } from "flash-v2";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { flash, explorerTx } from "@/lib/flash";
 import { computePositionView, fmtAmount, fmtUsd, parseAmount, shortKey } from "@/lib/format";
@@ -97,6 +97,50 @@ function AppInner() {
 
   const engine = useCopyEngine({ leader, signer, followerCollateralUsd, config: cfg });
 
+  // ── navigation: board ⇄ a leader. An armed auto session KEEPS RUNNING when you
+  // return to the board; leaving only stops it if it isn't armed. One at a time. ─
+  const [view, setView] = useState<"board" | "leader">("board");
+  const running = cfg.armed && Boolean(leader); // 0 or 1 live auto sessions
+  const openLeader = useCallback((o: string) => {
+    if (cfg.armed && leader && o !== leader) return; // locked to the running leader — Stop to switch
+    setLeader(o); setView("leader"); setPaste("");
+  }, [cfg.armed, leader]);
+  const goBoard = useCallback(() => {
+    setView("board");
+    if (!cfg.armed) setLeader(null); // not armed ⇒ stop on leave (no background stream)
+  }, [cfg.armed]);
+
+  // ── global Stop: disarm auto AND market-close every open copied position ──────
+  const [stopping, setStopping] = useState(false);
+  const stopAll = useCallback(async () => {
+    setCfg((c) => ({ ...c, armed: false }));
+    const positions = Object.values(snapshot?.positionMetrics ?? {});
+    if (signer && positions.length > 0) {
+      setStopping(true);
+      let failed = 0;
+      // close every position independently — one failure must not abort the rest
+      // (this is the kill switch). Any that fail stay visibly open in the header.
+      for (const p of positions) {
+        try {
+          const built = await flash.closePosition({
+            marketSymbol: p.marketSymbol, side: p.sideUi.toUpperCase() as TradeType,
+            inputUsdUi: "0", withdrawTokenSymbol: "USDC", owner: signer.owner,
+            ...signer.tradeFields,
+          });
+          if (built.transactionBase64) await signer.sendTrade(built.transactionBase64);
+        } catch (e) {
+          failed++;
+          console.error(`close-all: ${p.marketSymbol} ${p.sideUi} did not close`, e);
+        }
+      }
+      void balances.refresh(); void refreshBasket();
+      setStopping(false);
+      if (failed > 0) console.warn(`close-all: ${failed}/${positions.length} still open — they remain in your book`);
+    }
+    setView("board");
+    setLeader(null);
+  }, [signer, snapshot, balances, refreshBasket]);
+
   // ── enable (account setup + session key) ─────────────────────────────────────
   const [enabling, setEnabling] = useState(false);
   const [enableState, setEnableState] = useState<EnableState | null>(null);
@@ -127,19 +171,17 @@ function AppInner() {
         address={owner}
         inBasketUsd={basketExists ? inBasketUsd : null}
         onConnect={() => walletCtx.select?.(walletCtx.wallets[0]?.adapter.name ?? null)}
-        onBack={leader ? () => setLeader(null) : undefined}
-        streamStatus={leader ? engine.status : null}
+        onBack={view === "leader" ? goBoard : undefined}
+        streamStatus={view === "leader" && leader ? engine.status : null}
+        running={running}
+        runningLeader={leader ? shortKey(leader) : null}
+        copiedCount={followerPositions.length}
+        onResume={() => setView("leader")}
+        onStopAll={stopAll}
+        stopping={stopping}
       />
 
-      {!leader ? (
-        <Discover
-          board={board}
-          paste={paste}
-          setPaste={setPaste}
-          onFollow={(o) => { setLeader(o); setPaste(""); }}
-          prices={prices}
-        />
-      ) : (
+      {view === "leader" && leader ? (
         <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-[1.05fr_1fr]">
           <LeaderPanel
             leader={leader}
@@ -147,7 +189,6 @@ function AppInner() {
             positions={engine.leaderPositions}
             prices={prices}
             status={engine.status}
-            onUnfollow={() => setLeader(null)}
           />
           <Console
             ready={ready}
@@ -166,6 +207,16 @@ function AppInner() {
             prices={prices}
           />
         </div>
+      ) : (
+        <Discover
+          board={board}
+          paste={paste}
+          setPaste={setPaste}
+          onFollow={openLeader}
+          prices={prices}
+          lockedTo={running ? leader : null}
+          onResume={() => setView("leader")}
+        />
       )}
       <p className="px-1 text-center text-[10px] text-faint">
         Mainnet · real funds. You take the leader&apos;s risk — start small.
@@ -192,8 +243,9 @@ function AppInner() {
 // ════════════════════════════════════════════════════════════════════════════
 // Header
 // ════════════════════════════════════════════════════════════════════════════
-function Header({ connected, address, inBasketUsd, onConnect, onBack, streamStatus }: {
+function Header({ connected, address, inBasketUsd, onConnect, onBack, streamStatus, running, runningLeader, copiedCount, onResume, onStopAll, stopping }: {
   connected: boolean; address: string | null; inBasketUsd: number | null; onConnect: () => void; onBack?: () => void; streamStatus: string | null;
+  running: boolean; runningLeader: string | null; copiedCount: number; onResume: () => void; onStopAll: () => void; stopping: boolean;
 }) {
   return (
     <header className="glass spec flex items-center justify-between rounded-[20px] px-3 py-2.5 sm:px-4">
@@ -219,6 +271,23 @@ function Header({ connected, address, inBasketUsd, onConnect, onBack, streamStat
             {streamStatus}
           </span>
         )}
+        {(running || copiedCount > 0) && (
+          <div className="flex items-center gap-1">
+            {running ? (
+              <button onClick={onResume} className="press flex items-center gap-1.5 rounded-full glass-2 halo-long px-2.5 py-1 font-mono text-[10px] text-long">
+                <span className="h-1.5 w-1.5 rounded-full bg-long soft-pulse" />
+                1 copying{runningLeader ? ` · ${runningLeader}` : ""}{copiedCount > 0 ? ` · ${copiedCount} open` : ""}
+              </button>
+            ) : (
+              <span className="flex items-center gap-1.5 rounded-full glass-flat px-2.5 py-1 font-mono text-[10px] text-dim">
+                <span className="h-1.5 w-1.5 rounded-full bg-gold" />{copiedCount} open
+              </span>
+            )}
+            <button onClick={onStopAll} disabled={stopping} className="press rounded-full bg-short/15 px-2.5 py-1 font-mono text-[10px] font-semibold text-short transition-opacity disabled:opacity-50">
+              {stopping ? "closing…" : running ? "Stop all" : "Close all"}
+            </button>
+          </div>
+        )}
       </div>
       {connected ? (
         <div className="glass-2 spec flex items-center gap-3 rounded-full px-3.5 py-1.5">
@@ -242,23 +311,32 @@ function Header({ connected, address, inBasketUsd, onConnect, onBack, streamStat
 // ════════════════════════════════════════════════════════════════════════════
 // Discover — the leaderboard + paste-a-leader
 // ════════════════════════════════════════════════════════════════════════════
-function Discover({ board, paste, setPaste, onFollow, prices }: {
+function Discover({ board, paste, setPaste, onFollow, prices, lockedTo, onResume }: {
   board: ReturnType<typeof useLeaderboard>; paste: string; setPaste: (s: string) => void; onFollow: (o: string) => void; prices: Record<string, number>;
+  lockedTo: string | null; onResume: () => void;
 }) {
   void prices;
   const [sortBy, setSortBy] = useState<"pnl" | "win" | "vol" | "trades">("pnl");
-  const [liveOnly, setLiveOnly] = useState(false);
+  const [filters, setFilters] = useState<Set<string>>(new Set());
+  const toggle = (k: string) => setFilters((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const shown = useMemo(() => {
-    const base = liveOnly ? board.leaders.filter((l) => (board.openByOwner[l.owner] ?? 0) > 0) : board.leaders;
+    let base = board.leaders;
+    if (filters.has("live")) base = base.filter((l) => (board.openByOwner[l.owner] ?? 0) > 0);
+    if (filters.has("profit")) base = base.filter((l) => l.net_pnl > 0);
+    if (filters.has("active")) base = base.filter((l) => l.num_trades >= 10);
+    if (filters.has("win50")) base = base.filter((l) => l.win_rate >= 50);
     return [...base].sort((a, b) =>
       sortBy === "win" ? b.win_rate - a.win_rate
         : sortBy === "vol" ? b.total_volume_usd - a.total_volume_usd
           : sortBy === "trades" ? b.num_trades - a.num_trades
             : b.net_pnl - a.net_pnl,
     ).slice(0, 12);
-  }, [board.leaders, board.openByOwner, sortBy, liveOnly]);
+  }, [board.leaders, board.openByOwner, sortBy, filters]);
   const sorts: { k: typeof sortBy; label: string }[] = [
     { k: "pnl", label: "Top PnL" }, { k: "win", label: "Win rate" }, { k: "vol", label: "Volume" }, { k: "trades", label: "Most trades" },
+  ];
+  const filterDefs: { k: string; label: string }[] = [
+    { k: "live", label: "In a trade" }, { k: "profit", label: "Profitable" }, { k: "active", label: "≥10 trades" }, { k: "win50", label: "Win ≥50%" },
   ];
 
   return (
@@ -268,6 +346,16 @@ function Discover({ board, paste, setPaste, onFollow, prices }: {
         <h1 className="font-display text-[26px] font-bold leading-tight tracking-tight text-ink sm:text-[32px]">Copy a winner.</h1>
         <p className="text-sm text-dim">Pick a leader. Mirror their trades.</p>
       </div>
+
+      {lockedTo && (
+        <button onClick={onResume} className="press lift glass-2 halo-long flex items-center justify-between rounded-[14px] px-4 py-2.5 text-left">
+          <span className="flex items-center gap-2 text-[13px] text-ink">
+            <span className="h-2 w-2 rounded-full bg-long soft-pulse" />
+            Copying <span className="font-mono">{shortKey(lockedTo)}</span>
+          </span>
+          <span className="font-mono text-[11px] text-dim">tap to open · Stop all to switch →</span>
+        </button>
+      )}
 
       <div className="bezel">
         <label className="bezel-r glass spec flex items-center gap-2 px-4 py-2.5">
@@ -284,9 +372,10 @@ function Discover({ board, paste, setPaste, onFollow, prices }: {
         </label>
       </div>
 
-      {/* sort + live filter — rank the same 50 leaders by the metric you care about */}
-      <div className="flex items-center gap-2">
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+      {/* SORT (pick one) + FILTERS (stack as many as you want) */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-faint">sort</span>
           {sorts.map((s) => (
             <button key={s.k} onClick={() => setSortBy(s.k)}
               className={`press shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors ${sortBy === s.k ? "glass-2 text-ink" : "glass-flat text-dim hover:text-ink"}`}>
@@ -294,10 +383,21 @@ function Discover({ board, paste, setPaste, onFollow, prices }: {
             </button>
           ))}
         </div>
-        <button onClick={() => setLiveOnly((v) => !v)}
-          className={`press ml-auto flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors ${liveOnly ? "glass-2 text-long" : "glass-flat text-dim hover:text-ink"}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-long soft-pulse" : "bg-faint"}`} />In a trade
-        </button>
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-faint">filter</span>
+          {filterDefs.map((f) => {
+            const on = filters.has(f.k);
+            return (
+              <button key={f.k} onClick={() => toggle(f.k)}
+                className={`press flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors ${on ? "glass-2 text-long" : "glass-flat text-dim hover:text-ink"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-long" : "bg-faint"}`} />{f.label}
+              </button>
+            );
+          })}
+          {filters.size > 0 && (
+            <button onClick={() => setFilters(new Set())} className="press shrink-0 rounded-full px-2.5 py-1.5 text-[11px] text-faint hover:text-ink">clear</button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -308,20 +408,20 @@ function Discover({ board, paste, setPaste, onFollow, prices }: {
           <div className="glass halo-short col-span-full rounded-[18px] px-4 py-3 text-sm text-short">Couldn&apos;t load the leaderboard: {board.error}</div>
         )}
         {!board.loading && !board.error && shown.length === 0 && (
-          <div className="glass-flat col-span-full rounded-[18px] px-4 py-6 text-center text-sm text-faint">No one&apos;s in a trade right now.</div>
+          <div className="glass-flat col-span-full rounded-[18px] px-4 py-6 text-center text-sm text-faint">No leaders match those filters.</div>
         )}
         {shown.map((l) => (
-          <LeaderCard key={l.owner} l={l} live={(board.openByOwner[l.owner] ?? 0) > 0} openCount={board.openByOwner[l.owner] ?? 0} onFollow={() => onFollow(l.owner)} />
+          <LeaderCard key={l.owner} l={l} live={(board.openByOwner[l.owner] ?? 0) > 0} openCount={board.openByOwner[l.owner] ?? 0} onFollow={() => onFollow(l.owner)} locked={Boolean(lockedTo) && lockedTo !== l.owner} />
         ))}
       </div>
     </section>
   );
 }
 
-function LeaderCard({ l, live, openCount, onFollow }: { l: LeaderRow; live: boolean; openCount: number; onFollow: () => void }) {
+function LeaderCard({ l, live, openCount, onFollow, locked }: { l: LeaderRow; live: boolean; openCount: number; onFollow: () => void; locked?: boolean }) {
   const win = l.win_rate;
   return (
-    <button onClick={onFollow} className="lift press glass spec group rounded-[18px] p-3.5 text-left">
+    <button onClick={onFollow} disabled={locked} className={`lift press glass spec group rounded-[18px] p-3.5 text-left ${locked ? "opacity-40" : ""}`}>
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2.5">
           <span className={`grid h-9 w-9 place-items-center rounded-[11px] font-display text-sm font-bold ${l.rank <= 3 ? "bg-gold/15 text-gold" : "bg-white/5 text-dim"}`}>#{l.rank}</span>
@@ -352,8 +452,8 @@ function LeaderCard({ l, live, openCount, onFollow }: { l: LeaderRow; live: bool
 // ════════════════════════════════════════════════════════════════════════════
 // LeaderPanel — the followed leader's live book
 // ════════════════════════════════════════════════════════════════════════════
-function LeaderPanel({ leader, row, positions, prices, status, onUnfollow }: {
-  leader: string; row: LeaderRow | null; positions: PositionMetrics[]; prices: Record<string, number>; status: string; onUnfollow: () => void;
+function LeaderPanel({ leader, row, positions, prices, status }: {
+  leader: string; row: LeaderRow | null; positions: PositionMetrics[]; prices: Record<string, number>; status: string;
 }) {
   return (
     <section className="glass-in glass spec flex flex-col gap-3 rounded-[22px] p-4">
@@ -365,7 +465,6 @@ function LeaderPanel({ leader, row, positions, prices, status, onUnfollow }: {
             <p className="mt-0.5 font-mono text-[10px] text-faint">{row ? `${row.win_rate.toFixed(0)}% win · ${row.num_trades} trades` : "following"}</p>
           </div>
         </div>
-        <button onClick={onUnfollow} className="press rounded-full bg-white/5 px-3 py-1.5 font-mono text-[11px] text-dim hover:text-ink">unfollow</button>
       </div>
 
       <div className="flex items-center gap-2 px-0.5">

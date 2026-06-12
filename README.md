@@ -2,7 +2,7 @@
 
 <img src="./assets/banner.png" alt="Flash Trade — effortless perpetuals trading" width="100%" />
 
-# ⚡ Perps at ~30 ms.
+# ⚡ Perps at ~50 ms.
 
 ### The official starter for building on Flash Trade's MagicBlock layer
 

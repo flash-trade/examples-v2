@@ -1,0 +1,23 @@
+{
+  "name": "flash-magicblock-starter",
+  "private": true,
+  "description": "Perps at 50 ms \u2014 the official starter for building on Flash Trade's MagicBlock layer.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "hello": "bun run packages/flash-v2/src/hello.ts",
+    "lifecycle": "bun run packages/flash-v2/src/lifecycle.ts",
+    "typecheck": "bun run --filter '*' typecheck",
+    "tap-trade": "bun run --cwd examples/tap-trade dev"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flash-trade/examples-v2"
+  }
+}

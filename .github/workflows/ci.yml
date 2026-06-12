@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck (all workspaces)
+        run: bun run typecheck
+
+      - name: Build tap-trade
+        run: bun run --cwd examples/tap-trade build
+
+      - name: Secret scan
+        run: |
+          # Fail if anything that looks like a private key or provider token is tracked.
+          # The 64-number-array pattern catches dumped Solana keypair JSON (the actual
+          # artifact) without false-positives on source code that merely handles keys.
+          PATTERNS='PRIVATE KEY|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.rpcpool|sk_live|AKIA[0-9A-Z]{16}|"secretKey"|\[ *([0-9]{1,3} *, *){63}[0-9]{1,3} *\]'
+          HITS=$(git ls-files -z | xargs -0 grep -lE "$PATTERNS" -- 2>/dev/null | grep -v 'ci.yml' || true)
+          if [ -n "$HITS" ]; then
+            echo "Potential secrets found in:"; echo "$HITS"; exit 1
+          fi
+          # .env must never be tracked
+          if git ls-files | grep -qE '(^|/)\.env$'; then
+            echo ".env is tracked — remove it"; exit 1
+          fi
+          echo "secret scan clean"

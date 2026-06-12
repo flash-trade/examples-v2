@@ -1,0 +1,4238 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Flash Trade API",
+    "description": "REST API for Flash Trade perpetuals program accounts (real-time via Yellowstone gRPC)",
+    "license": { "name": "" },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "operationId": "check",
+        "responses": {
+          "200": { "description": "Health check with cached account counts" }
+        }
+      }
+    },
+    "/orders/owner/{owner}": {
+      "get": {
+        "tags": ["Orders"],
+        "operationId": "get_orders_by_owner",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "description": "Owner wallet public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All enriched orders for owner (limit, TP, SL)"
+          }
+        }
+      }
+    },
+    "/owner/{owner}/ws": {
+      "get": {
+        "tags": ["Streaming"],
+        "summary": "WebSocket stream for an owner's positions and orders.",
+        "description": "Sends JSON messages with two types:\n- `{ \"type\": \"positions\", \"data\": ... }` — from cached enrichment (interval + event-driven)\n- `{ \"type\": \"orders\", \"data\": ... }` — from cached enrichment (event-driven)\n\nServer sends Ping frames every 30s; closes if Pong not received within 10s.",
+        "operationId": "ws_owner",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "description": "Owner wallet public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "includePnlInLeverageDisplay",
+            "in": "query",
+            "description": "Include PnL in leverage display calculation",
+            "required": true,
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "updateIntervalMs",
+            "in": "query",
+            "description": "Position update interval in ms (default 1000, min 100, max 10000)",
+            "required": false,
+            "schema": { "type": "integer", "format": "int64", "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket upgrade — streams positions and orders as JSON messages"
+          },
+          "429": { "description": "Too many connections" },
+          "503": {
+            "description": "Service unavailable — global connection limit reached"
+          }
+        }
+      }
+    },
+    "/pool-data": {
+      "get": {
+        "tags": ["Pool Data"],
+        "operationId": "get_all_pool_data",
+        "responses": {
+          "200": { "description": "All pool data with computed metrics" }
+        }
+      }
+    },
+    "/pool-data/status/initialized": {
+      "get": {
+        "tags": ["Pool Data"],
+        "operationId": "get_pool_data_status",
+        "responses": {
+          "200": { "description": "Pool data initialization status" }
+        }
+      }
+    },
+    "/pool-data/{pool_pubkey}": {
+      "get": {
+        "tags": ["Pool Data"],
+        "operationId": "get_pool_data",
+        "parameters": [
+          {
+            "name": "pool_pubkey",
+            "in": "path",
+            "description": "Pool public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Single pool data with computed metrics" },
+          "404": { "description": "Pool not found" }
+        }
+      }
+    },
+    "/positions/owner/{owner}": {
+      "get": {
+        "tags": ["Positions"],
+        "operationId": "get_by_owner",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "description": "Owner wallet public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "includePnlInLeverageDisplay",
+            "in": "query",
+            "description": "Include PnL in leverage display calculation",
+            "required": true,
+            "schema": { "type": "boolean" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All positions for owner with PnL, leverage, and liquidation data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PositionTableDataUiDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preview/exit-fee": {
+      "post": {
+        "tags": ["Previews"],
+        "operationId": "exit_fee",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PreviewExitFeeDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Exit fee and exit price for a position close",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewExitFeeResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preview/limit-order-fees": {
+      "post": {
+        "tags": ["Previews"],
+        "operationId": "limit_order_fees",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewLimitOrderFeesDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Limit order entry price, fee, liquidation price, borrow rate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewLimitOrderFeesResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preview/margin": {
+      "post": {
+        "tags": ["Previews"],
+        "operationId": "margin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PreviewMarginDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Margin add/remove preview: new leverage, liquidation price, max amount",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewMarginResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preview/tp-sl": {
+      "post": {
+        "tags": ["Previews"],
+        "operationId": "tp_sl",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PreviewTpSlDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "TP/SL preview: PnL from trigger price or trigger price from PnL/ROI",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewTpSlResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/prices": {
+      "get": {
+        "tags": ["Prices"],
+        "operationId": "list_prices",
+        "responses": {
+          "200": {
+            "description": "All current prices keyed by token symbol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/PriceResponse"
+                  },
+                  "propertyNames": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/prices/{symbol}": {
+      "get": {
+        "tags": ["Prices"],
+        "operationId": "get_price",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "description": "Token symbol (e.g. SOL, BTC, ETH)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Price for a single token",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PriceResponse" }
+              }
+            }
+          },
+          "404": { "description": "Symbol not found" }
+        }
+      }
+    },
+    "/raw/custodies": {
+      "get": {
+        "tags": ["Raw Accounts"],
+        "operationId": "list_custodies",
+        "responses": { "200": { "description": "All custody accounts" } }
+      }
+    },
+    "/raw/custodies/{pubkey}": {
+      "get": {
+        "tags": ["Raw Accounts"],
+        "operationId": "get_custody",
+        "parameters": [
+          {
+            "name": "pubkey",
+            "in": "path",
+            "description": "Custody account public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Custody account data" },
+          "404": { "description": "Account not found" }
+        }
+      }
+    },
+    "/raw/markets": {
+      "get": {
+        "tags": ["Raw Accounts"],
+        "operationId": "list_markets",
+        "responses": { "200": { "description": "All market accounts" } }
+      }
+    },
+    "/raw/markets/{pubkey}": {
+      "get": {
+        "tags": ["Raw Accounts"],
+        "operationId": "get_market",
+        "parameters": [
+          {
+            "name": "pubkey",
+            "in": "path",
+            "description": "Market account public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Market account data" },
+          "404": { "description": "Account not found" }
+        }
+      }
+    },
+    "/raw/orders/{pubkey}": {
+      "get": {
+        "tags": ["Raw Accounts"],
+        "operationId": "get_order",
+        "parameters": [
+          {
+            "name": "pubkey",
+            "in": "path",
+            "description": "Order account public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Raw order account data" },
+          "404": { "description": "Account not found" }
+        }
+      }
+    },
+    "/raw/perpetuals": {
+      "get": {
+        "tags": ["Raw Accounts"],
+        "operationId": "list_perpetuals",
+        "responses": { "200": { "description": "All perpetuals accounts" } }
+      }
+    },
+    "/raw/perpetuals/{pubkey}": {
+      "get": {
+        "tags": ["Raw Accounts"],
+        "operationId": "get_perpetuals",
+        "parameters": [
+          {
+            "name": "pubkey",
+            "in": "path",
+            "description": "Perpetuals account public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Perpetuals account data" },
+          "404": { "description": "Account not found" }
+        }
+      }
+    },
+    "/raw/pools": {
+      "get": {
+        "tags": ["Raw Accounts"],
+        "operationId": "list_pools",
+        "responses": { "200": { "description": "All pool accounts" } }
+      }
+    },
+    "/raw/pools/{pubkey}": {
+      "get": {
+        "tags": ["Raw Accounts"],
+        "operationId": "get_pool",
+        "parameters": [
+          {
+            "name": "pubkey",
+            "in": "path",
+            "description": "Pool account public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Pool account data" },
+          "404": { "description": "Account not found" }
+        }
+      }
+    },
+    "/raw/positions/{pubkey}": {
+      "get": {
+        "tags": ["Raw Accounts"],
+        "operationId": "get_position",
+        "parameters": [
+          {
+            "name": "pubkey",
+            "in": "path",
+            "description": "Position account public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Raw position account data" },
+          "404": { "description": "Account not found" }
+        }
+      }
+    },
+    "/spot/tokens": {
+      "get": {
+        "tags": ["Spot"],
+        "operationId": "list_spot_tokens",
+        "responses": {
+          "200": {
+            "description": "Curated spot token list proxied from tokens.xyz",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SpotTokensResponse" }
+              }
+            }
+          },
+          "304": { "description": "Not modified (matched If-None-Match)" },
+          "503": {
+            "description": "Cache not yet warm and upstream unreachable"
+          }
+        }
+      }
+    },
+    "/tokens": {
+      "get": {
+        "tags": ["Tokens"],
+        "operationId": "list_tokens",
+        "responses": {
+          "200": {
+            "description": "All supported tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/TokenDto" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/add-collateral": {
+      "post": {
+        "tags": ["Collateral"],
+        "operationId": "add_collateral",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AddCollateralDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Add collateral preview and transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddCollateralResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/cancel-all-trigger-orders": {
+      "post": {
+        "tags": ["Trigger Orders"],
+        "operationId": "cancel_all_trigger_orders",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelAllTriggerOrdersDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Cancel all trigger orders for a market+side",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelTriggerOrderResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/cancel-limit-order": {
+      "post": {
+        "tags": ["Trigger Orders"],
+        "operationId": "cancel_limit_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CancelLimitOrderDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Cancel a limit order and return reserved funds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelLimitOrderResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/cancel-trigger-order": {
+      "post": {
+        "tags": ["Trigger Orders"],
+        "operationId": "cancel_trigger_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CancelTriggerOrderDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Cancel a single trigger order (TP/SL)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelTriggerOrderResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/close-position": {
+      "post": {
+        "tags": ["Trading"],
+        "operationId": "close_position",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ClosePositionDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Close position preview and optional transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosePositionResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/create-referral": {
+      "post": {
+        "tags": ["Account Setup"],
+        "operationId": "create_referral",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateReferralDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Create referral account transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateReferralResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/edit-trigger-order": {
+      "post": {
+        "tags": ["Trigger Orders"],
+        "operationId": "edit_trigger_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EditTriggerOrderDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Edit trigger order (TP/SL) transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditTriggerOrderResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/init-token-stake": {
+      "post": {
+        "tags": ["Account Setup"],
+        "operationId": "init_token_stake",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/InitTokenStakeDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Initialize token stake (FAF) account transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InitTokenStakeResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/open-position": {
+      "post": {
+        "tags": ["Trading"],
+        "operationId": "open_position",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OpenPositionDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Open position preview and optional transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenPositionResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/place-trigger-order": {
+      "post": {
+        "tags": ["Trigger Orders"],
+        "operationId": "place_trigger_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PlaceTriggerOrderDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Place trigger order (TP/SL) transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceTriggerOrderResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/remove-collateral": {
+      "post": {
+        "tags": ["Collateral"],
+        "operationId": "remove_collateral",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RemoveCollateralDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Remove collateral preview and transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveCollateralResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transaction-builder/reverse-position": {
+      "post": {
+        "tags": ["Trading"],
+        "operationId": "reverse_position",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ReversePositionDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reverse position preview and combined transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReversePositionResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/health": {
+      "get": {
+        "tags": ["V2 Health"],
+        "operationId": "mb_check",
+        "responses": {
+          "200": { "description": "MagicBlock ER health and account counts" }
+        }
+      }
+    },
+    "/v2/owner/{owner}": {
+      "get": {
+        "tags": ["V2 Streaming"],
+        "summary": "One-shot HTTP fetch of the same payload streamed by the WS endpoint.\nUse this for initial page loads or environments that can't open a WS;\nthe WS at `/owner/{owner}/ws` is the live source of truth.",
+        "operationId": "mb_get_basket_snapshot",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "description": "Owner wallet pubkey",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Basket snapshot — raw basket bytes plus per-position metrics",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MbBasketSnapshotDto" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/owner/{owner}/ws": {
+      "get": {
+        "tags": ["V2 Streaming"],
+        "summary": "WebSocket stream for a MagicBlock owner's basket state.",
+        "description": "Two JSON message types:\n- `{ \"type\": \"basket\",  \"data\": MbBasketSnapshotDto }` — full payload.\n  Sent once on connect, then on every basket account update (gRPC).\n  Contains raw basket bytes (base64), per-market `orderMetrics`, and the\n  latest `positionMetrics`. The UI decodes the basket via the\n  `magic-trade-client` SDK to get native `PositionMeta[]`/`OrderMeta[]`.\n- `{ \"type\": \"metrics\", \"data\": HashMap<marketPk, MbPositionMetricsDto> }`\n  — position metrics only. Sent on every oracle tick so PnL/leverage/liq\n  keep refreshing without re-shipping the basket bytes or order metrics.\n\nServer sends Ping frames every 30s; closes if Pong not received within 10s.",
+        "operationId": "mb_mb_ws_owner",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "description": "Owner wallet public key (base58)",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "updateIntervalMs",
+            "in": "query",
+            "description": "Metrics refresh interval in ms (default 1000, min 100, max 10000)",
+            "required": false,
+            "schema": { "type": "integer", "format": "int64", "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket upgrade — streams positions and orders as JSON messages"
+          },
+          "429": { "description": "Too many connections" },
+          "503": {
+            "description": "Service unavailable — global connection limit reached"
+          }
+        }
+      }
+    },
+    "/v2/pool-data": {
+      "get": {
+        "tags": ["V2 Pool Data"],
+        "operationId": "mb_get_all_pool_data",
+        "responses": {
+          "200": { "description": "All MagicBlock pool statistics" }
+        }
+      }
+    },
+    "/v2/pool-data/{pool_pubkey}": {
+      "get": {
+        "tags": ["V2 Pool Data"],
+        "operationId": "mb_get_pool_data",
+        "parameters": [
+          {
+            "name": "pool_pubkey",
+            "in": "path",
+            "description": "Pool account pubkey",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Single pool statistics" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/v2/preview/exit-fee": {
+      "post": {
+        "tags": ["V2 Previews"],
+        "operationId": "mb_exit_fee",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbPreviewExitFeeDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Exit fee and exit price for a position close"
+          }
+        }
+      }
+    },
+    "/v2/preview/limit-order-fees": {
+      "post": {
+        "tags": ["V2 Previews"],
+        "operationId": "mb_limit_order_fees",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MbPreviewLimitOrderFeesDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Entry price, fee, liquidation price, borrow rate"
+          }
+        }
+      }
+    },
+    "/v2/preview/margin": {
+      "post": {
+        "tags": ["V2 Previews"],
+        "operationId": "mb_margin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbPreviewMarginDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": { "200": { "description": "Margin add/remove preview" } }
+      }
+    },
+    "/v2/preview/tp-sl": {
+      "post": {
+        "tags": ["V2 Previews"],
+        "operationId": "mb_tp_sl",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbPreviewTpSlDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": { "200": { "description": "TP/SL preview" } }
+      }
+    },
+    "/v2/prices": {
+      "get": {
+        "tags": ["V2 Prices"],
+        "operationId": "mb_list_prices",
+        "responses": {
+          "200": { "description": "Prices for MagicBlock tokens only" }
+        }
+      }
+    },
+    "/v2/prices/{symbol}": {
+      "get": {
+        "tags": ["V2 Prices"],
+        "operationId": "mb_get_price",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "description": "Token symbol (e.g. SPY, MSTR)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Price for a single token" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/v2/raw/baskets/{pubkey}": {
+      "get": {
+        "tags": ["V2 Raw Accounts"],
+        "operationId": "mb_get_basket",
+        "parameters": [
+          {
+            "name": "pubkey",
+            "in": "path",
+            "description": "Basket account pubkey",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Basket account" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/v2/raw/custodies": {
+      "get": {
+        "tags": ["V2 Raw Accounts"],
+        "operationId": "mb_list_custodies",
+        "responses": {
+          "200": { "description": "All MagicBlock custody accounts" }
+        }
+      }
+    },
+    "/v2/raw/custodies/{pubkey}": {
+      "get": {
+        "tags": ["V2 Raw Accounts"],
+        "operationId": "mb_get_custody",
+        "parameters": [
+          {
+            "name": "pubkey",
+            "in": "path",
+            "description": "Custody account pubkey",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Custody account" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/v2/raw/markets": {
+      "get": {
+        "tags": ["V2 Raw Accounts"],
+        "operationId": "mb_list_markets",
+        "responses": {
+          "200": { "description": "All MagicBlock market accounts" }
+        }
+      }
+    },
+    "/v2/raw/markets/{pubkey}": {
+      "get": {
+        "tags": ["V2 Raw Accounts"],
+        "operationId": "mb_get_market",
+        "parameters": [
+          {
+            "name": "pubkey",
+            "in": "path",
+            "description": "Market account pubkey",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Market account" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/v2/raw/pools": {
+      "get": {
+        "tags": ["V2 Raw Accounts"],
+        "operationId": "mb_list_pools",
+        "responses": {
+          "200": { "description": "All MagicBlock pool accounts" }
+        }
+      }
+    },
+    "/v2/raw/pools/{pubkey}": {
+      "get": {
+        "tags": ["V2 Raw Accounts"],
+        "operationId": "mb_get_pool",
+        "parameters": [
+          {
+            "name": "pubkey",
+            "in": "path",
+            "description": "Pool account pubkey",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Pool account" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/v2/tokens": {
+      "get": {
+        "tags": ["V2 Tokens"],
+        "operationId": "mb_list_tokens",
+        "responses": {
+          "200": { "description": "All supported MagicBlock tokens" }
+        }
+      }
+    },
+    "/v2/transaction-builder/add-collateral": {
+      "post": {
+        "tags": ["V2 Collateral"],
+        "operationId": "mb_add_collateral",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbAddCollateralDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Quote + unsigned transaction" }
+        }
+      }
+    },
+    "/v2/transaction-builder/cancel-limit-order": {
+      "post": {
+        "tags": ["V2 Trigger Orders"],
+        "summary": "Cancel an existing limit order. Place is exposed via `/transaction-builder/\nopen-position` with `orderType: \"LIMIT\"` (place_limit_order is built there\nalongside the position open path).",
+        "operationId": "mb_cancel_limit_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbCancelLimitOrderDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "400": { "description": "Validation error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/cancel-trigger-order": {
+      "post": {
+        "tags": ["V2 Trigger Orders"],
+        "operationId": "mb_cancel_trigger_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MbCancelTriggerOrderDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "400": { "description": "Validation error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/close-position": {
+      "post": {
+        "tags": ["V2 Trading"],
+        "operationId": "mb_close_position",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbClosePositionDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Quote + unsigned transaction" }
+        }
+      }
+    },
+    "/v2/transaction-builder/delegate-basket": {
+      "post": {
+        "tags": ["V2 Account Setup"],
+        "operationId": "mb_delegate_basket",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbDelegateBasketDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "500": { "description": "Error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/deposit-direct": {
+      "post": {
+        "tags": ["V2 Account Setup"],
+        "operationId": "mb_deposit_direct",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbDepositDirectDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "500": { "description": "Error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/edit-limit-order": {
+      "post": {
+        "tags": ["V2 Trigger Orders"],
+        "summary": "Edit an existing limit order — change limit price, size, TP, or SL.\n`0` for any field means \"keep existing\"; both limit_price+size_amount=0\nwould cancel, but use `cancel-limit-order` for that intent for clarity.",
+        "operationId": "mb_edit_limit_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbEditLimitOrderDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "400": { "description": "Validation error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/edit-trigger-order": {
+      "post": {
+        "tags": ["V2 Trigger Orders"],
+        "operationId": "mb_edit_trigger_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbEditTriggerOrderDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "400": { "description": "Validation error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/execute-withdrawal": {
+      "post": {
+        "tags": ["V2 Account Setup"],
+        "operationId": "mb_execute_withdrawal",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MbExecuteWithdrawalDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "500": { "description": "Error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/init-basket": {
+      "post": {
+        "tags": ["V2 Account Setup"],
+        "operationId": "mb_init_basket",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbInitBasketDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "500": { "description": "Error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/init-deposit-ledger": {
+      "post": {
+        "tags": ["V2 Account Setup"],
+        "operationId": "mb_init_deposit_ledger",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MbInitDepositLedgerDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "500": { "description": "Error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/open-position": {
+      "post": {
+        "tags": ["V2 Trading"],
+        "operationId": "mb_open_position",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbOpenPositionDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Quote + unsigned transaction" }
+        }
+      }
+    },
+    "/v2/transaction-builder/place-tp-sl": {
+      "post": {
+        "tags": ["V2 Trigger Orders"],
+        "operationId": "mb_place_tp_sl",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbPlaceTpSlDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "400": { "description": "Validation error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/place-trigger-order": {
+      "post": {
+        "tags": ["V2 Trigger Orders"],
+        "operationId": "mb_place_trigger_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MbPlaceTriggerOrderDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "400": { "description": "Validation error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/remove-collateral": {
+      "post": {
+        "tags": ["V2 Collateral"],
+        "operationId": "mb_remove_collateral",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbRemoveCollateralDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Quote + unsigned transaction" }
+        }
+      }
+    },
+    "/v2/transaction-builder/request-withdrawal": {
+      "post": {
+        "tags": ["V2 Account Setup"],
+        "operationId": "mb_request_withdrawal",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MbRequestWithdrawalDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction" },
+          "500": { "description": "Error" }
+        }
+      }
+    },
+    "/v2/transaction-builder/reverse-position": {
+      "post": {
+        "tags": ["V2 Trading"],
+        "summary": "Atomically close the current position and open the opposite side, in one tx.\nProceeds from the close settle into the opposite-side's collateral custody;\na 2% haircut absorbs price drift between quote and execution.",
+        "operationId": "mb_reverse_position",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MbReversePositionDto" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Combined close+open quote + unsigned transaction"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AddCollateralDto": {
+        "type": "object",
+        "required": [
+          "positionKey",
+          "depositAmountUi",
+          "depositTokenSymbol",
+          "owner"
+        ],
+        "properties": {
+          "depositAmountUi": {
+            "type": "string",
+            "description": "Amount to deposit in UI format (denominated in deposit token)",
+            "example": "50.0"
+          },
+          "depositTokenSymbol": {
+            "type": "string",
+            "description": "Deposit token symbol (e.g. \"USDC\", \"SOL\")",
+            "example": "USDC"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey (always required — operates on existing position)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "positionKey": {
+            "type": "string",
+            "description": "Existing position account pubkey",
+            "example": "A86eptJTdwqNCyWpgeczaKQyi76CBPmzfZDwQPqRG4Vs"
+          },
+          "slippagePercentage": {
+            "type": "string",
+            "description": "Slippage tolerance percentage (default: 0.5)",
+            "example": "0.5"
+          }
+        }
+      },
+      "AddCollateralResponseDto": {
+        "type": "object",
+        "required": [
+          "existingCollateralUsd",
+          "newCollateralUsd",
+          "existingLeverage",
+          "newLeverage",
+          "existingLiquidationPrice",
+          "newLiquidationPrice",
+          "depositUsdValue",
+          "maxAddableUsd"
+        ],
+        "properties": {
+          "depositUsdValue": {
+            "type": "string",
+            "description": "USD value of the deposit (UI format)",
+            "example": "50.00"
+          },
+          "err": {
+            "type": "string",
+            "description": "Error message if computation failed"
+          },
+          "existingCollateralUsd": {
+            "type": "string",
+            "description": "Current collateral in USD (UI format)",
+            "example": "100.00"
+          },
+          "existingLeverage": {
+            "type": "string",
+            "description": "Current leverage",
+            "example": "5.00"
+          },
+          "existingLiquidationPrice": {
+            "type": "string",
+            "description": "Current liquidation price (UI format)",
+            "example": "120.30"
+          },
+          "maxAddableUsd": {
+            "type": "string",
+            "description": "Max addable amount in USD (UI format)",
+            "example": "10000.00"
+          },
+          "newCollateralUsd": {
+            "type": "string",
+            "description": "Collateral after adding (UI format)",
+            "example": "150.00"
+          },
+          "newLeverage": {
+            "type": "string",
+            "description": "New leverage after adding collateral",
+            "example": "3.33"
+          },
+          "newLiquidationPrice": {
+            "type": "string",
+            "description": "New liquidation price after adding collateral (UI format)",
+            "example": "105.00"
+          },
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction",
+            "example": "AQAAAA..."
+          }
+        }
+      },
+      "ApiErrorResponse": {
+        "type": "object",
+        "required": ["err"],
+        "properties": { "err": { "type": "string" } }
+      },
+      "CancelAllTriggerOrdersDto": {
+        "type": "object",
+        "required": ["marketSymbol", "side", "owner"],
+        "properties": {
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey (must own the orders)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          }
+        }
+      },
+      "CancelLimitOrderDto": {
+        "type": "object",
+        "required": ["marketSymbol", "side", "orderId", "owner"],
+        "properties": {
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "orderId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Index of the limit order to cancel (0-4)",
+            "example": 0,
+            "minimum": 0
+          },
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey (must own the order)",
+            "example": "9erjj6n8Hkrv9dVK1CjJatSNfCgUP6EbQ2hRbrsokRuL"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          }
+        }
+      },
+      "CancelLimitOrderResponseDto": {
+        "type": "object",
+        "required": ["transactionBase64"],
+        "properties": {
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction (unsigned)",
+            "example": "AQAAAA..."
+          }
+        }
+      },
+      "CancelTriggerOrderDto": {
+        "type": "object",
+        "required": ["marketSymbol", "side", "orderId", "isStopLoss", "owner"],
+        "properties": {
+          "isStopLoss": {
+            "type": "boolean",
+            "description": "True for stop-loss, false for take-profit",
+            "example": false
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "orderId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Index of the trigger order to cancel (0-4)",
+            "example": 0,
+            "minimum": 0
+          },
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey (must own the order)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          }
+        }
+      },
+      "CancelTriggerOrderResponseDto": {
+        "type": "object",
+        "required": ["transactionBase64"],
+        "properties": {
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction (unsigned)",
+            "example": "AQAAAA..."
+          }
+        }
+      },
+      "ClosePositionDto": {
+        "type": "object",
+        "required": ["positionKey", "inputUsdUi", "withdrawTokenSymbol"],
+        "properties": {
+          "enableFundedWallet": {
+            "type": "boolean",
+            "description": "Enable funded wallet privilege",
+            "example": false
+          },
+          "inputUsdUi": {
+            "type": "string",
+            "description": "USD amount to close in UI format. Use full size to close entirely, or partial amount for partial close.",
+            "example": "500.00"
+          },
+          "keepLeverageSame": { "type": "boolean", "example": false },
+          "positionKey": {
+            "type": "string",
+            "description": "Position account pubkey to close",
+            "example": "A86eptJTdwqNCyWpgeczaKQyi76CBPmzfZDwQPqRG4Vs"
+          },
+          "privilege": {
+            "$ref": "#/components/schemas/PrivilegeType",
+            "description": "Explicit privilege level (see OpenPositionDto for details)"
+          },
+          "slippagePercentage": {
+            "type": "string",
+            "description": "Slippage tolerance percentage (default: 0.5)",
+            "example": "0.5"
+          },
+          "tokenStakeFafAccount": {
+            "type": "string",
+            "description": "Token stake FAF account pubkey (for fee discounts)",
+            "example": "FAFxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "tradingFeeDiscountPercent": {
+            "type": "number",
+            "format": "double",
+            "description": "Fee discount percentage from staking (0-100)",
+            "example": 10.0
+          },
+          "userReferralAccount": {
+            "type": "string",
+            "description": "User referral account pubkey (for referral privilege)",
+            "example": "REF1xR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "withdrawTokenSymbol": {
+            "type": "string",
+            "description": "Token symbol to withdraw into (e.g. \"USDC\", \"SOL\")",
+            "example": "USDC"
+          }
+        }
+      },
+      "ClosePositionResponseDto": {
+        "type": "object",
+        "required": [
+          "receiveTokenSymbol",
+          "receiveTokenAmountUi",
+          "receiveTokenAmountUsdUi",
+          "markPrice",
+          "entryPrice",
+          "existingLiquidationPrice",
+          "newLiquidationPrice",
+          "existingSize",
+          "newSize",
+          "existingCollateral",
+          "newCollateral",
+          "existingLeverage",
+          "newLeverage",
+          "settledPnl",
+          "fees",
+          "feesBeforeDiscount"
+        ],
+        "properties": {
+          "entryPrice": {
+            "type": "string",
+            "description": "Position entry price (UI format)",
+            "example": "145.00"
+          },
+          "err": {
+            "type": "string",
+            "description": "Error message if computation failed",
+            "example": "Position not found"
+          },
+          "existingCollateral": {
+            "type": "string",
+            "description": "Current collateral in USD (UI format)",
+            "example": "100.00"
+          },
+          "existingLeverage": {
+            "type": "string",
+            "description": "Current leverage",
+            "example": "5.00"
+          },
+          "existingLiquidationPrice": {
+            "type": "string",
+            "description": "Current liquidation price before close (UI format)",
+            "example": "120.30"
+          },
+          "existingSize": {
+            "type": "string",
+            "description": "Current position size in USD (UI format)",
+            "example": "500.00"
+          },
+          "fees": {
+            "type": "string",
+            "description": "Total fees (exit + borrow) in USD after discount (UI format)",
+            "example": "0.36"
+          },
+          "feesBeforeDiscount": {
+            "type": "string",
+            "description": "Total fees (exit + borrow) in USD before discount (UI format). Same as fees when no discount.",
+            "example": "0.40"
+          },
+          "lockAndUnsettledFeeUsd": {
+            "type": "string",
+            "description": "Lock and unsettled fee in USD (UI format), present for partial closes",
+            "example": "0.15"
+          },
+          "markPrice": {
+            "type": "string",
+            "description": "Current mark/exit price (UI format)",
+            "example": "148.52"
+          },
+          "newCollateral": {
+            "type": "string",
+            "description": "Remaining collateral after close in USD (UI format)",
+            "example": "0.00"
+          },
+          "newLeverage": {
+            "type": "string",
+            "description": "New leverage after partial close",
+            "example": "0.00"
+          },
+          "newLiquidationPrice": {
+            "type": "string",
+            "description": "New liquidation price after partial close, \"0\" for full close (UI format)",
+            "example": "0.00"
+          },
+          "newSize": {
+            "type": "string",
+            "description": "Remaining position size after close in USD (UI format)",
+            "example": "0.00"
+          },
+          "receiveTokenAmountUi": {
+            "type": "string",
+            "description": "Amount of receive token in UI format",
+            "example": "105.23"
+          },
+          "receiveTokenAmountUsdUi": {
+            "type": "string",
+            "description": "USD value of receive amount in UI format",
+            "example": "105.23"
+          },
+          "receiveTokenSymbol": {
+            "type": "string",
+            "description": "Token symbol being received",
+            "example": "USDC"
+          },
+          "settledPnl": {
+            "type": "string",
+            "description": "Settled PnL in USD (negative prefixed with \"-\")",
+            "example": "5.23"
+          },
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction",
+            "example": "AQAAAA..."
+          }
+        }
+      },
+      "CreateReferralDto": {
+        "type": "object",
+        "required": ["owner", "referrer"],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey of the user creating the referral account",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "referrer": {
+            "type": "string",
+            "description": "The referrer's wallet pubkey (their token stake PDA is derived automatically)",
+            "example": "A86eptJTdwqNCyWpgeczaKQyi76CBPmzfZDwQPqRG4Vs"
+          }
+        }
+      },
+      "CreateReferralResponseDto": {
+        "type": "object",
+        "required": ["referralAccount", "transactionBase64"],
+        "properties": {
+          "referralAccount": {
+            "type": "string",
+            "description": "The derived referral account PDA",
+            "example": "REF1xR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction",
+            "example": "AQAAAA..."
+          }
+        }
+      },
+      "EditTriggerOrderDto": {
+        "type": "object",
+        "required": [
+          "marketSymbol",
+          "side",
+          "orderId",
+          "triggerPriceUi",
+          "sizeAmountUi",
+          "isStopLoss",
+          "owner"
+        ],
+        "properties": {
+          "isStopLoss": {
+            "type": "boolean",
+            "description": "True for stop-loss, false for take-profit",
+            "example": false
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "orderId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Index of the trigger order to edit (0-4)",
+            "example": 0,
+            "minimum": 0
+          },
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey (must be original order owner)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          },
+          "sizeAmountUi": {
+            "type": "string",
+            "description": "New size amount in target token (UI format)",
+            "example": "0.5"
+          },
+          "triggerPriceUi": {
+            "type": "string",
+            "description": "New trigger price in UI format",
+            "example": "165.00"
+          }
+        }
+      },
+      "EditTriggerOrderResponseDto": {
+        "type": "object",
+        "required": ["transactionBase64"],
+        "properties": {
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction (unsigned)",
+            "example": "AQAAAA..."
+          }
+        }
+      },
+      "InitTokenStakeDto": {
+        "type": "object",
+        "required": ["owner"],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey of the user",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          }
+        }
+      },
+      "InitTokenStakeResponseDto": {
+        "type": "object",
+        "required": ["tokenStakeAccount", "transactionBase64"],
+        "properties": {
+          "tokenStakeAccount": {
+            "type": "string",
+            "description": "The derived token stake account PDA",
+            "example": "FAFxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction",
+            "example": "AQAAAA..."
+          }
+        }
+      },
+      "MarginAction": { "type": "string", "enum": ["ADD", "REMOVE"] },
+      "MbAddCollateralDto": {
+        "type": "object",
+        "required": [
+          "marketSymbol",
+          "side",
+          "depositAmountUi",
+          "depositTokenSymbol",
+          "owner"
+        ],
+        "properties": {
+          "depositAmountUi": {
+            "type": "string",
+            "description": "Amount to deposit in UI format (denominated in deposit token)",
+            "example": "50.0"
+          },
+          "depositTokenSymbol": {
+            "type": "string",
+            "description": "Deposit token symbol (e.g. \"USDC\", \"SOL\")",
+            "example": "USDC"
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Target market token symbol (e.g. \"SOL\", \"BTC\"). Together with `side`\nand `owner` this identifies the position in the basket.",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey — required for basket lookup",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "description": "Ephemeral Rollup session token account",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Position side — LONG or SHORT."
+          },
+          "signer": {
+            "type": "string",
+            "description": "Ephemeral Rollup session signer pubkey. When omitted, the owner signs directly.",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "slippagePercentage": {
+            "type": "string",
+            "description": "Slippage tolerance percentage (default: 0.5)",
+            "example": "0.5"
+          }
+        }
+      },
+      "MbBasketSnapshotDto": {
+        "type": "object",
+        "description": "Single payload streamed to the UI on every basket update or oracle tick.\nThe UI decodes `basket_data` via the `magic-trade-client` SDK to get native\nPositionMeta / OrderMeta arrays, and looks up per-market metrics for\nUI-ready strings (PnL, leverage, formatted prices, etc.).",
+        "required": ["owner", "positionMetrics", "orderMetrics"],
+        "properties": {
+          "basketData": {
+            "type": ["string", "null"],
+            "description": "Base64-encoded raw basket account bytes. UI decodes via SDK Borsh layout.\n`None` when the basket account hasn't been ingested yet."
+          },
+          "basketPubkey": {
+            "type": ["string", "null"],
+            "description": "Basket account pubkey (PDA derived from owner)"
+          },
+          "orderMetrics": {
+            "type": "object",
+            "description": "Per-market order metrics, keyed by market pubkey (base58).\nOnly includes markets in active pools that have at least one non-empty\nlimit/TP/SL slot.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MbOrderMetricsDto"
+            },
+            "propertyNames": { "type": "string" }
+          },
+          "owner": { "type": "string", "description": "Owner wallet pubkey" },
+          "positionMetrics": {
+            "type": "object",
+            "description": "Per-position derived metrics, keyed by market pubkey (base58).\nOnly includes positions in active pools with non-zero size.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MbPositionMetricsDto"
+            },
+            "propertyNames": { "type": "string" }
+          }
+        }
+      },
+      "MbCancelLimitOrderDto": {
+        "type": "object",
+        "description": "Cancel an existing limit order. Maps to the on-chain `edit_limit_order`\ninstruction with all-zero params, which the program treats as cancel\n(returns reserved collateral, frees the slot).",
+        "required": ["marketSymbol", "side", "orderId", "owner"],
+        "properties": {
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market token symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "orderId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Slot index of the limit order (0-4)",
+            "example": 0,
+            "minimum": 0
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "description": "Ephemeral Rollup session token account",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          },
+          "signer": {
+            "type": "string",
+            "description": "Ephemeral Rollup session signer pubkey. When omitted, the owner signs directly.",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          }
+        }
+      },
+      "MbCancelTriggerOrderDto": {
+        "type": "object",
+        "required": ["marketSymbol", "side", "orderId", "isStopLoss", "owner"],
+        "properties": {
+          "isStopLoss": {
+            "type": "boolean",
+            "description": "True for stop-loss, false for take-profit",
+            "example": false
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "orderId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Index of the trigger order to cancel (0-4). Pass 255 to cancel all\ntrigger orders for this market.",
+            "example": 0,
+            "minimum": 0
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey (must own the order)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "description": "Ephemeral Rollup session token account",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          },
+          "signer": {
+            "type": "string",
+            "description": "Ephemeral Rollup session signer pubkey. When omitted, the owner signs directly.",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          }
+        }
+      },
+      "MbClosePositionDto": {
+        "type": "object",
+        "required": [
+          "marketSymbol",
+          "side",
+          "inputUsdUi",
+          "withdrawTokenSymbol",
+          "owner"
+        ],
+        "properties": {
+          "inputUsdUi": {
+            "type": "string",
+            "description": "USD amount to close in UI format. Use full size to close entirely,\nor a partial amount for partial close.",
+            "example": "500.00"
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Target market token symbol (e.g. \"SOL\", \"BTC\", \"ETH\"). Together with\n`side` and `owner` this uniquely identifies the position in the basket.",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey — required for basket lookup",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "description": "Ephemeral Rollup session token account",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Position side — LONG or SHORT. MagicBlock baskets can hold at most one\nlong and one short per market, so (marketSymbol, side) disambiguates."
+          },
+          "signer": {
+            "type": "string",
+            "description": "Ephemeral Rollup session signer pubkey. When omitted, the owner signs directly.",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "slippagePercentage": {
+            "type": "string",
+            "description": "Slippage tolerance percentage (default: 0.5)",
+            "example": "0.5"
+          },
+          "withdrawTokenSymbol": {
+            "type": "string",
+            "description": "Token symbol to withdraw into (display hint; actual settlement token\nis determined by the position's collateral custody).",
+            "example": "USDC"
+          }
+        }
+      },
+      "MbDelegateBasketDto": {
+        "type": "object",
+        "required": ["payer", "owner"],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey (owner of the basket being delegated)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "payer": {
+            "type": "string",
+            "description": "Payer wallet pubkey (pays for the delegation transaction)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          }
+        }
+      },
+      "MbDepositDirectDto": {
+        "type": "object",
+        "required": ["owner", "tokenMint", "amount"],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Amount in human-readable UI units (decimal string, e.g. \"1.5\").",
+            "example": "1.0"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "tokenMint": {
+            "type": "string",
+            "description": "SPL token mint pubkey. The source ATA and token program (Token-2022 vs\nlegacy SPL Token) are derived automatically from this + the owner.",
+            "example": "DN7LRppzKn94XdkrbC5uHnqu4LZZ61HEkWVvJHfp4xYG"
+          }
+        }
+      },
+      "MbEditLimitOrderDto": {
+        "type": "object",
+        "description": "Edit an existing limit order. Per the on-chain semantics:\n  * `limit_price = 0` → keep existing limit price\n  * `size_amount = 0` → keep existing size\n  * `limit_price = 0 AND size_amount = 0` → cancel the order entirely\n    (use `MbCancelLimitOrderDto` for that — clearer intent)\n  * `take_profit_price = 0` → clear TP (or keep existing — depends on the\n    program's per-field interpretation; supply explicitly to be safe)\n  * `stop_loss_price = 0` → same as TP",
+        "required": ["marketSymbol", "side", "orderId", "owner"],
+        "properties": {
+          "limitPriceUi": {
+            "type": "string",
+            "description": "New limit price in UI format. Omit to keep existing.",
+            "example": "150.00"
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market token symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "orderId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Slot index of the limit order (0-4)",
+            "example": 0,
+            "minimum": 0
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          },
+          "signer": {
+            "type": "string",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "sizeAmountUi": {
+            "type": "string",
+            "description": "New size in target token UI format (e.g. \"0.5\"). Omit to keep existing.",
+            "example": "0.5"
+          },
+          "stopLossUi": {
+            "type": "string",
+            "description": "New stop-loss price in UI format. Omit to keep, \"0\" to clear.",
+            "example": "140.00"
+          },
+          "takeProfitUi": {
+            "type": "string",
+            "description": "New take-profit price in UI format. Omit to keep, \"0\" to clear.",
+            "example": "160.00"
+          }
+        }
+      },
+      "MbEditTriggerOrderDto": {
+        "type": "object",
+        "description": "Edit an existing TP/SL trigger order — change trigger price and/or\nthe size that closes when it fires. The on-chain `edit_trigger_order`\nreplaces both fields atomically (no \"keep existing\" semantics, unlike\nlimit-order edit), so callers should provide both.",
+        "required": [
+          "marketSymbol",
+          "side",
+          "orderId",
+          "isStopLoss",
+          "triggerPriceUi",
+          "sizeAmountUi",
+          "owner"
+        ],
+        "properties": {
+          "isStopLoss": {
+            "type": "boolean",
+            "description": "True if this is a stop-loss slot, false for take-profit",
+            "example": false
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "orderId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Slot index of the trigger order (0-4)",
+            "example": 0,
+            "minimum": 0
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          },
+          "signer": {
+            "type": "string",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "sizeAmountUi": {
+            "type": "string",
+            "description": "New size to close when the trigger fires, in target token UI format",
+            "example": "0.5"
+          },
+          "triggerPriceUi": {
+            "type": "string",
+            "description": "New trigger price in UI format",
+            "example": "170.00"
+          }
+        }
+      },
+      "MbExecuteWithdrawalDto": {
+        "type": "object",
+        "description": "Execute / resume a withdrawal on the base chain — re-runs the ER callback in a\nsingle base-chain transaction (transfers escrowed funds to the owner and\ncloses the escrow). Used to recover a withdrawal whose ER callback did not\nsettle automatically.",
+        "required": ["owner", "tokenMint"],
+        "properties": {
+          "includeCustodySettlement": {
+            "type": "boolean",
+            "description": "Prepend a custody-settlement execution (set when the settlement receipt is\nstill on-chain and owned by the program). Defaults to true.",
+            "example": true
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey (signer / fee payer)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "tokenMint": {
+            "type": "string",
+            "description": "Mint of the token to withdraw",
+            "example": "DN7LRppzKn94XdkrbC5uHnqu4LZZ61HEkWVvJHfp4xYG"
+          }
+        }
+      },
+      "MbInitBasketDto": {
+        "type": "object",
+        "required": ["owner"],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey — the basket will be created as the owner's PDA",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          }
+        }
+      },
+      "MbInitDepositLedgerDto": {
+        "type": "object",
+        "required": ["owner"],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey — the deposit ledger will be created as the owner's PDA",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          }
+        }
+      },
+      "MbLimitOrderMetricsDto": {
+        "type": "object",
+        "required": [
+          "orderId",
+          "sideUi",
+          "symbol",
+          "reserveSymbol",
+          "reserveAmountUi",
+          "reserveAmountUsdUi",
+          "sizeAmountUi",
+          "sizeAmountUiKmb",
+          "sizeUsdUi",
+          "collateralAmountUi",
+          "collateralAmountUiKmb",
+          "collateralAmountUsdUi",
+          "entryOraclePrice",
+          "entryPriceUi",
+          "leverageUi",
+          "liquidationPriceUi",
+          "limitTakeProfitPriceUi",
+          "limitStopLossPriceUi",
+          "receiveTokenSymbol",
+          "reserveTokenSymbol"
+        ],
+        "properties": {
+          "collateralAmountUi": { "type": "string" },
+          "collateralAmountUiKmb": { "type": "string" },
+          "collateralAmountUsdUi": { "type": "string" },
+          "entryOraclePrice": { "$ref": "#/components/schemas/OraclePriceDto" },
+          "entryPriceUi": { "type": "string" },
+          "leverageUi": { "type": "string" },
+          "limitStopLossPriceUi": { "type": "string" },
+          "limitTakeProfitPriceUi": { "type": "string" },
+          "liquidationPriceUi": { "type": "string" },
+          "orderId": { "type": "integer", "minimum": 0 },
+          "receiveTokenSymbol": { "type": "string" },
+          "reserveAmountUi": { "type": "string" },
+          "reserveAmountUsdUi": { "type": "string" },
+          "reserveSymbol": { "type": "string" },
+          "reserveTokenSymbol": { "type": "string" },
+          "sideUi": { "type": "string" },
+          "sizeAmountUi": { "type": "string" },
+          "sizeAmountUiKmb": { "type": "string" },
+          "sizeUsdUi": { "type": "string" },
+          "symbol": { "type": "string" }
+        }
+      },
+      "MbOpenPositionDto": {
+        "type": "object",
+        "required": [
+          "inputTokenSymbol",
+          "outputTokenSymbol",
+          "inputAmountUi",
+          "leverage",
+          "tradeType"
+        ],
+        "properties": {
+          "inputAmountUi": {
+            "type": "string",
+            "description": "Input amount in human-readable UI format",
+            "example": "100.0"
+          },
+          "inputTokenSymbol": {
+            "type": "string",
+            "description": "Collateral token symbol (e.g. \"USDC\", \"SOL\")",
+            "example": "USDC"
+          },
+          "leverage": {
+            "type": "number",
+            "format": "double",
+            "description": "Desired leverage multiplier",
+            "example": 5.0
+          },
+          "limitPrice": {
+            "type": "string",
+            "description": "Limit order trigger price (UI format)",
+            "example": "150.00"
+          },
+          "orderType": {
+            "$ref": "#/components/schemas/OrderType",
+            "description": "Order type: MARKET or LIMIT"
+          },
+          "outputTokenSymbol": {
+            "type": "string",
+            "description": "Target market token symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey — required to build the transaction. Omit for preview only.",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "description": "Ephemeral Rollup session token account (session-scoped authority)",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "signer": {
+            "type": "string",
+            "description": "Ephemeral Rollup session signer pubkey (for session-based signing).\nWhen omitted, the owner signs directly.",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "slippagePercentage": {
+            "type": "string",
+            "description": "Slippage tolerance percentage (default: 0.5)",
+            "example": "0.5"
+          },
+          "stopLoss": {
+            "type": "string",
+            "description": "Stop loss trigger price (UI format). Appends a trigger order instruction.",
+            "example": "130.00"
+          },
+          "takeProfit": {
+            "type": "string",
+            "description": "Take profit trigger price (UI format). Appends a trigger order instruction.",
+            "example": "160.00"
+          },
+          "tradeType": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade direction: LONG or SHORT"
+          }
+        }
+      },
+      "MbOrderMetricsDto": {
+        "type": "object",
+        "description": "Per-market order bundle. Keyed by market pubkey in the snapshot's\n`order_metrics` map.",
+        "required": [
+          "marketSymbol",
+          "sideUi",
+          "limitOrders",
+          "takeProfitOrders",
+          "stopLossOrders"
+        ],
+        "properties": {
+          "limitOrders": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/MbLimitOrderMetricsDto" }
+          },
+          "marketSymbol": { "type": "string" },
+          "sideUi": { "type": "string" },
+          "stopLossOrders": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/MbTriggerOrderMetricsDto" }
+          },
+          "takeProfitOrders": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/MbTriggerOrderMetricsDto" }
+          }
+        }
+      },
+      "MbPlaceTpSlDto": {
+        "type": "object",
+        "description": "Place TP and/or SL on an existing position in a single atomic tx.\nEither field can be omitted/empty; if both are set, both instructions are\nincluded in one tx. Mirrors what the SDK's `triggerTpAndSl` builds.",
+        "required": ["marketSymbol", "side", "sizeAmountUi", "owner"],
+        "properties": {
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market token symbol (e.g. \"SOL\")",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Position side: LONG or SHORT"
+          },
+          "signer": {
+            "type": "string",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "sizeAmountUi": {
+            "type": "string",
+            "description": "Size to close when the trigger fires, in target token UI format",
+            "example": "0.5"
+          },
+          "stopLossUi": {
+            "type": "string",
+            "description": "Stop-loss trigger price (UI). Omit/empty to skip SL.",
+            "example": "140.00"
+          },
+          "takeProfitUi": {
+            "type": "string",
+            "description": "Take-profit trigger price (UI). Omit/empty to skip TP.",
+            "example": "160.00"
+          }
+        }
+      },
+      "MbPlaceTriggerOrderDto": {
+        "type": "object",
+        "required": [
+          "marketSymbol",
+          "side",
+          "triggerPriceUi",
+          "sizeAmountUi",
+          "isStopLoss",
+          "owner"
+        ],
+        "properties": {
+          "isStopLoss": {
+            "type": "boolean",
+            "description": "True for stop-loss, false for take-profit",
+            "example": false
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey (owner of the position)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "description": "Ephemeral Rollup session token account",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          },
+          "signer": {
+            "type": "string",
+            "description": "Ephemeral Rollup session signer pubkey. When omitted, the owner signs directly.",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "sizeAmountUi": {
+            "type": "string",
+            "description": "Size amount in target token (UI format, e.g. \"0.5\" SOL). Delta size\nto close when the trigger fires.",
+            "example": "0.5"
+          },
+          "triggerPriceUi": {
+            "type": "string",
+            "description": "Trigger price in UI format (e.g. \"160.00\" for TP, \"120.00\" for SL)",
+            "example": "160.00"
+          }
+        }
+      },
+      "MbPositionMetricsDto": {
+        "type": "object",
+        "description": "Per-position derived metrics. Keyed by market pubkey in the snapshot's\n`position_metrics` map.\n\nIncludes UI-ready display strings (`*_ui`) so callers don't redo the\nformatting, plus raw native-unit fields for any logic that needs full\nprecision (close sizing, custom rendering, etc.).",
+        "required": [
+          "marketSymbol",
+          "collateralSymbol",
+          "sideUi",
+          "entryPriceUi",
+          "sizeAmountUi",
+          "sizeUsdUi",
+          "collateralAmountUi",
+          "collateralUsdUi",
+          "pnlWithFeeUsdUi",
+          "pnlPercentageWithFee",
+          "pnlWithoutFeeUsdUi",
+          "pnlPercentageWithoutFee",
+          "liquidationPriceUi",
+          "leverageUi",
+          "profitUsd",
+          "lossUsd",
+          "exitFeeUsd",
+          "borrowFeeUsd",
+          "totalFeeUsd",
+          "leverage",
+          "marginUsd",
+          "liquidationPrice",
+          "exitPrice"
+        ],
+        "properties": {
+          "borrowFeeUsd": { "type": "string" },
+          "collateralAmountUi": { "type": "string" },
+          "collateralAmountUiKmb": { "type": ["string", "null"] },
+          "collateralSymbol": { "type": "string" },
+          "collateralUsdUi": { "type": "string" },
+          "entryPriceUi": { "type": "string" },
+          "exitFeeUsd": { "type": "string" },
+          "exitPrice": {
+            "$ref": "#/components/schemas/OraclePriceDto",
+            "description": "Current oracle price used for PnL calc"
+          },
+          "leverage": {
+            "type": "string",
+            "description": "Leverage as raw u128 BPS (divide by BPS_POWER for ratio)"
+          },
+          "leverageUi": {
+            "type": "string",
+            "description": "Leverage as decimal string (e.g. \"1.10\"), or \"Infinity\""
+          },
+          "liquidationPrice": {
+            "$ref": "#/components/schemas/OraclePriceDto",
+            "description": "Computed liquidation price as oracle (price + exponent)"
+          },
+          "liquidationPriceUi": {
+            "type": "string",
+            "description": "Liquidation price formatted in market's UI precision"
+          },
+          "lossUsd": { "type": "string" },
+          "marginUsd": { "type": "string" },
+          "marketSymbol": { "type": "string" },
+          "pnlPercentageWithFee": {
+            "type": "string",
+            "description": "Signed PnL percentage of collateral, e.g. \"-2.05\""
+          },
+          "pnlPercentageWithoutFee": { "type": "string" },
+          "pnlWithFeeUsdUi": {
+            "type": "string",
+            "description": "Signed PnL net of all fees, e.g. \"-0.02\" or \"12.50\""
+          },
+          "pnlWithoutFeeUsdUi": {
+            "type": "string",
+            "description": "Signed PnL before fees"
+          },
+          "profitUsd": { "type": "string" },
+          "sideUi": { "type": "string" },
+          "sizeAmountUi": { "type": "string" },
+          "sizeAmountUiKmb": { "type": ["string", "null"] },
+          "sizeUsdUi": { "type": "string" },
+          "totalFeeUsd": { "type": "string" }
+        }
+      },
+      "MbPreviewExitFeeDto": {
+        "type": "object",
+        "required": ["marketSymbol", "side", "closeAmountUsdUi", "owner"],
+        "properties": {
+          "closeAmountUsdUi": {
+            "type": "string",
+            "description": "USD amount to close in UI format",
+            "example": "500.00"
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Target market token symbol (e.g. \"SOL\", \"BTC\"). Together with `side`\nand `owner` this identifies the position in the basket.",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey — required for basket lookup",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Position side — LONG or SHORT."
+          }
+        }
+      },
+      "MbPreviewLimitOrderFeesDto": {
+        "type": "object",
+        "required": ["marketSymbol", "inputAmountUi", "outputAmountUi", "side"],
+        "properties": {
+          "inputAmountUi": {
+            "type": "string",
+            "description": "Input (collateral) amount in UI format",
+            "example": "100.0"
+          },
+          "limitPrice": {
+            "type": "string",
+            "description": "Limit price in UI format (optional; uses live price if omitted)",
+            "example": "150.00"
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market symbol (e.g. \"SOL\", \"BTC\")",
+            "example": "SOL"
+          },
+          "outputAmountUi": {
+            "type": "string",
+            "description": "Output (size) amount in UI format",
+            "example": "0.67"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          }
+        }
+      },
+      "MbPreviewMarginDto": {
+        "type": "object",
+        "required": [
+          "marketSymbol",
+          "side",
+          "marginDeltaUsdUi",
+          "action",
+          "owner"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/MarginAction",
+            "description": "Action: ADD or REMOVE"
+          },
+          "marginDeltaUsdUi": {
+            "type": "string",
+            "description": "Margin delta in USD (UI format)",
+            "example": "50.00"
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Target market token symbol (e.g. \"SOL\", \"BTC\"). Together with `side`\nand `owner` this identifies the position in the basket.",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey — required for basket lookup",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Position side — LONG or SHORT."
+          }
+        }
+      },
+      "MbPreviewTpSlDto": {
+        "type": "object",
+        "required": ["mode", "marketSymbol", "side"],
+        "properties": {
+          "collateralUsdUi": {
+            "type": "string",
+            "description": "Collateral in USD (inline mode only)",
+            "example": "100.00"
+          },
+          "entryPriceUi": {
+            "type": "string",
+            "description": "Entry price in UI format (inline mode only)",
+            "example": "148.52"
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Target market token symbol (e.g. \"SOL\", \"BTC\")",
+            "example": "SOL"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Mode: \"forward\" (trigger price -> PnL), \"reverse_pnl\" (target PnL -> trigger price),\n\"reverse_roi\" (target ROI -> trigger price)",
+            "example": "forward"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey. When provided, the backend uses the caller's\nexisting position for (marketSymbol, side). When omitted, the preview\nuses the inline fields (entry price, size, collateral) — useful for\npreviewing TP/SL on a limit order that hasn't been placed yet.",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Position side — LONG or SHORT"
+          },
+          "sizeUsdUi": {
+            "type": "string",
+            "description": "Position size in USD (inline mode only)",
+            "example": "500.00"
+          },
+          "targetPnlUsdUi": {
+            "type": "string",
+            "description": "Reverse PnL mode: target PnL in USD",
+            "example": "50.00"
+          },
+          "targetRoiPercent": {
+            "type": "number",
+            "format": "double",
+            "description": "Reverse ROI mode: target ROI percentage",
+            "example": 50.0
+          },
+          "triggerPriceUi": {
+            "type": "string",
+            "description": "Forward mode: trigger price to calculate PnL for",
+            "example": "160.00"
+          }
+        }
+      },
+      "MbRemoveCollateralDto": {
+        "type": "object",
+        "required": [
+          "marketSymbol",
+          "side",
+          "withdrawAmountUsdUi",
+          "withdrawTokenSymbol",
+          "owner"
+        ],
+        "properties": {
+          "marketSymbol": {
+            "type": "string",
+            "description": "Target market token symbol (e.g. \"SOL\", \"BTC\"). Together with `side`\nand `owner` this identifies the position in the basket.",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey — required for basket lookup",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "description": "Ephemeral Rollup session token account",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Position side — LONG or SHORT."
+          },
+          "signer": {
+            "type": "string",
+            "description": "Ephemeral Rollup session signer pubkey. When omitted, the owner signs directly.",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "slippagePercentage": {
+            "type": "string",
+            "description": "Slippage tolerance percentage (default: 0.5)",
+            "example": "0.5"
+          },
+          "withdrawAmountUsdUi": {
+            "type": "string",
+            "description": "USD amount to remove in UI format",
+            "example": "25.00"
+          },
+          "withdrawTokenSymbol": {
+            "type": "string",
+            "description": "Token symbol to receive (display hint; actual settlement token is\ndetermined by the position's collateral custody).",
+            "example": "USDC"
+          }
+        }
+      },
+      "MbRequestWithdrawalDto": {
+        "type": "object",
+        "description": "Request a withdrawal — creates + delegates the withdrawal escrow on the base\nchain and schedules the ER callback that releases funds. Built as a single\nbase-chain transaction (the first instruction idempotently creates the owner's\nreceiving ATA).",
+        "required": ["owner", "tokenMint", "amount"],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Amount to withdraw, in UI units (decimal string, e.g. \"12.5\")",
+            "example": "12.5"
+          },
+          "includeCustodySettlement": {
+            "type": "boolean",
+            "description": "Prepend a custody-settlement request (set when the custody settlement\nreceipt does not yet exist on-chain). Defaults to true.",
+            "example": true
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey (signer / fee payer)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "tokenMint": {
+            "type": "string",
+            "description": "Mint of the token to withdraw",
+            "example": "DN7LRppzKn94XdkrbC5uHnqu4LZZ61HEkWVvJHfp4xYG"
+          }
+        }
+      },
+      "MbReversePositionDto": {
+        "type": "object",
+        "description": "Reverse a position: close the current position fully and immediately open\nan equal-leverage position on the opposite side, in a single atomic tx.\n\nProceeds from the close settle into the opposite-side's collateral custody\nso the open instruction can pull them directly from the deposit ledger.\nA 2% haircut is applied to the close proceeds to absorb price drift\nbetween quote and on-chain execution.",
+        "required": ["marketSymbol", "side", "leverage", "owner"],
+        "properties": {
+          "leverage": {
+            "type": "number",
+            "format": "double",
+            "description": "Leverage to use for the new (opposite-side) position",
+            "example": 5.0
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Target market symbol (e.g. \"SOL\", \"BTC\")",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner wallet pubkey",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "sessionToken": {
+            "type": "string",
+            "example": "TKNxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Current position side — LONG or SHORT. The new position will be the opposite."
+          },
+          "signer": {
+            "type": "string",
+            "example": "SESSxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "slippagePercentage": {
+            "type": "string",
+            "description": "Slippage tolerance percentage (default: 0.5)",
+            "example": "0.5"
+          }
+        }
+      },
+      "MbTriggerOrderMetricsDto": {
+        "type": "object",
+        "required": [
+          "orderId",
+          "sideUi",
+          "symbol",
+          "receiveTokenSymbol",
+          "sizeAmountUi",
+          "sizeAmountUiKmb",
+          "sizeUsdUi",
+          "type",
+          "triggerPriceUi",
+          "leverage"
+        ],
+        "properties": {
+          "leverage": { "type": "string" },
+          "orderId": { "type": "integer", "minimum": 0 },
+          "receiveTokenSymbol": { "type": "string" },
+          "sideUi": { "type": "string" },
+          "sizeAmountUi": { "type": "string" },
+          "sizeAmountUiKmb": { "type": "string" },
+          "sizeUsdUi": { "type": "string" },
+          "symbol": { "type": "string" },
+          "triggerPriceUi": { "type": "string" },
+          "type": { "type": "string", "description": "\"TP\" or \"SL\"" }
+        }
+      },
+      "OpenPositionDto": {
+        "type": "object",
+        "required": [
+          "inputTokenSymbol",
+          "outputTokenSymbol",
+          "inputAmountUi",
+          "leverage",
+          "tradeType"
+        ],
+        "properties": {
+          "degenMode": { "type": "boolean", "example": false },
+          "enableFundedWallet": {
+            "type": "boolean",
+            "description": "Enable funded wallet privilege",
+            "example": false
+          },
+          "inputAmountUi": {
+            "type": "string",
+            "description": "Input amount in human-readable UI format",
+            "example": "100.0"
+          },
+          "inputTokenSymbol": {
+            "type": "string",
+            "description": "Token symbol to pay with (e.g. \"USDC\", \"SOL\")",
+            "example": "USDC"
+          },
+          "leverage": {
+            "type": "number",
+            "format": "double",
+            "description": "Desired leverage multiplier",
+            "example": 5.0
+          },
+          "limitPrice": {
+            "type": "string",
+            "description": "Limit order trigger price (UI format)",
+            "example": "150.00"
+          },
+          "orderType": {
+            "$ref": "#/components/schemas/OrderType",
+            "description": "Order type: MARKET or LIMIT"
+          },
+          "outputTokenSymbol": {
+            "type": "string",
+            "description": "Target market token symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey — required to build the transaction, omit for preview only",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "privilege": {
+            "$ref": "#/components/schemas/PrivilegeType",
+            "description": "Explicit privilege level. When provided, overrides automatic inference.\nNONE = no privilege, STAKE = user's own FAF stake, REFERRAL = referred user.\nBoth `token_stake_faf_account` and `user_referral_account` must be provided\nfor STAKE or REFERRAL — otherwise falls back to NONE."
+          },
+          "slippagePercentage": {
+            "type": "string",
+            "description": "Slippage tolerance percentage (default: 0.5)",
+            "example": "0.5"
+          },
+          "stopLoss": {
+            "type": "string",
+            "description": "Stop loss trigger price (UI format). Appends a trigger order instruction.",
+            "example": "130.00"
+          },
+          "takeProfit": {
+            "type": "string",
+            "description": "Take profit trigger price (UI format). Appends a trigger order instruction.",
+            "example": "160.00"
+          },
+          "tokenStakeFafAccount": {
+            "type": "string",
+            "description": "Token stake FAF account pubkey (for fee discounts)",
+            "example": "FAFxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "tradeType": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade direction: LONG or SHORT"
+          },
+          "tradingFeeDiscountPercent": {
+            "type": "number",
+            "format": "double",
+            "description": "Fee discount percentage from staking (0-100)",
+            "example": 10.0
+          },
+          "userReferralAccount": {
+            "type": "string",
+            "description": "User referral account pubkey (for referral privilege)",
+            "example": "REF1xR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "userWhitelistAccount": {
+            "type": "string",
+            "example": "JcfgTh6VXBBcuSXEw7isUVqpkqD6y4Lu"
+          }
+        }
+      },
+      "OpenPositionResponseDto": {
+        "type": "object",
+        "required": [
+          "newLeverage",
+          "newEntryPrice",
+          "newLiquidationPrice",
+          "entryFee",
+          "entryFeeBeforeDiscount",
+          "openPositionFeePercent",
+          "availableLiquidity",
+          "youPayUsdUi",
+          "youRecieveUsdUi",
+          "marginFeePercentage",
+          "outputAmount",
+          "outputAmountUi"
+        ],
+        "properties": {
+          "availableLiquidity": {
+            "type": "string",
+            "description": "Available liquidity for this market in USD (UI format)",
+            "example": "1234567.89"
+          },
+          "entryFee": {
+            "type": "string",
+            "description": "Entry fee in USD after discount (UI format)",
+            "example": "0.45"
+          },
+          "entryFeeBeforeDiscount": {
+            "type": "string",
+            "description": "Entry fee in USD before discount (UI format). Same as entry_fee when no discount.",
+            "example": "0.50"
+          },
+          "err": {
+            "type": "string",
+            "description": "Error message if computation failed",
+            "example": "Target price not available"
+          },
+          "marginFeePercentage": {
+            "type": "string",
+            "description": "Hourly borrow rate percentage for the collateral custody (e.g. \"0.00800\" = 0.008%/hr)",
+            "example": "0.00800"
+          },
+          "newEntryPrice": {
+            "type": "string",
+            "description": "New weighted-average entry price after this trade (UI format)",
+            "example": "148.52"
+          },
+          "newLeverage": {
+            "type": "string",
+            "description": "New position leverage after this trade",
+            "example": "5.00"
+          },
+          "newLiquidationPrice": {
+            "type": "string",
+            "description": "New liquidation price after this trade (UI format)",
+            "example": "120.30"
+          },
+          "oldEntryPrice": {
+            "type": "string",
+            "description": "Existing position entry price (present when increasing an existing position)",
+            "example": "145.00"
+          },
+          "oldLeverage": {
+            "type": "string",
+            "description": "Existing position leverage (present when increasing an existing position)",
+            "example": "4.50"
+          },
+          "oldLiquidationPrice": {
+            "type": "string",
+            "description": "Existing liquidation price (present when increasing an existing position)",
+            "example": "118.00"
+          },
+          "openPositionFeePercent": {
+            "type": "string",
+            "description": "Open position fee rate as percentage after discount (e.g. \"0.03600\" = 0.036%)",
+            "example": "0.03600"
+          },
+          "outputAmount": {
+            "type": "string",
+            "description": "Output size amount in native units (raw u64)",
+            "example": "3370000000"
+          },
+          "outputAmountUi": {
+            "type": "string",
+            "description": "Output size amount in human-readable UI format",
+            "example": "3.37"
+          },
+          "stopLossQuote": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "$ref": "#/components/schemas/TriggerQuoteDto",
+                "description": "Stop-loss trigger quote (present when stop_loss is provided)"
+              }
+            ]
+          },
+          "swapFeeUsdUi": {
+            "type": "string",
+            "description": "Swap: total fee in USD (fee_in + fee_out converted to USD)",
+            "example": "0.45"
+          },
+          "swapInPriceUi": {
+            "type": "string",
+            "description": "Swap: min oracle price of input token (UI format)",
+            "example": "148.52"
+          },
+          "swapOutPriceUi": {
+            "type": "string",
+            "description": "Swap: max oracle price of output token (UI format)",
+            "example": "1.00"
+          },
+          "takeProfitQuote": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "$ref": "#/components/schemas/TriggerQuoteDto",
+                "description": "Take-profit trigger quote (present when take_profit is provided)"
+              }
+            ]
+          },
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction (present only when `owner` is provided)",
+            "example": "AQAAAA..."
+          },
+          "youPayUsdUi": {
+            "type": "string",
+            "description": "Total collateral you pay in USD (UI format)",
+            "example": "100.00"
+          },
+          "youRecieveUsdUi": {
+            "type": "string",
+            "description": "Position size you receive in USD (UI format)",
+            "example": "500.00"
+          }
+        }
+      },
+      "OraclePriceDto": {
+        "type": "object",
+        "required": ["price", "exponent", "confidence", "timestamp"],
+        "properties": {
+          "confidence": { "type": "string", "example": "0" },
+          "exponent": { "type": "string", "example": "-8" },
+          "price": { "type": "string", "example": "14852000000" },
+          "timestamp": { "type": "string", "example": "1707900000" }
+        }
+      },
+      "OrderType": { "type": "string", "enum": ["MARKET", "LIMIT"] },
+      "PlaceTriggerOrderDto": {
+        "type": "object",
+        "required": [
+          "marketSymbol",
+          "side",
+          "triggerPriceUi",
+          "sizeAmountUi",
+          "isStopLoss",
+          "owner"
+        ],
+        "properties": {
+          "isStopLoss": {
+            "type": "boolean",
+            "description": "True for stop-loss, false for take-profit",
+            "example": false
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market symbol (e.g. \"SOL\", \"BTC\", \"ETH\")",
+            "example": "SOL"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey (required — owner of the position)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          },
+          "sizeAmountUi": {
+            "type": "string",
+            "description": "Size amount in target token (UI format, e.g. \"0.5\" SOL). This is the delta\nsize to close when the trigger fires.",
+            "example": "0.5"
+          },
+          "triggerPriceUi": {
+            "type": "string",
+            "description": "Trigger price in UI format (e.g. \"160.00\" for TP, \"120.00\" for SL)",
+            "example": "160.00"
+          }
+        }
+      },
+      "PlaceTriggerOrderResponseDto": {
+        "type": "object",
+        "required": ["transactionBase64"],
+        "properties": {
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction (unsigned)",
+            "example": "AQAAAA..."
+          }
+        }
+      },
+      "PnlDto": {
+        "type": "object",
+        "required": [
+          "profitUsd",
+          "lossUsd",
+          "exitFeeUsd",
+          "borrowFeeUsd",
+          "exitFeeAmount",
+          "borrowFeeAmount",
+          "priceImpactUsd",
+          "priceImpactSet"
+        ],
+        "properties": {
+          "borrowFeeAmount": { "type": "string", "example": "0.001012" },
+          "borrowFeeUsd": { "type": "string", "example": "0.15" },
+          "exitFeeAmount": { "type": "string", "example": "0.002700" },
+          "exitFeeUsd": { "type": "string", "example": "0.40" },
+          "lossUsd": { "type": "string", "example": "0.00" },
+          "priceImpactSet": {
+            "type": "boolean",
+            "description": "Whether price impact has been set on this position",
+            "example": false
+          },
+          "priceImpactUsd": {
+            "type": "string",
+            "description": "Price impact fee in USD (raw u64 as string, USD_DECIMALS precision)",
+            "example": "0"
+          },
+          "profitUsd": { "type": "string", "example": "12.50" }
+        }
+      },
+      "PositionTableDataUiDto": {
+        "type": "object",
+        "required": ["key"],
+        "properties": {
+          "collateralAmountUi": { "type": "string", "example": "100.00" },
+          "collateralAmountUiKmb": { "type": "string", "example": "100.00" },
+          "collateralSymbol": { "type": "string", "example": "USDC" },
+          "collateralUsdUi": { "type": "string", "example": "100.00" },
+          "entryOraclePrice": { "$ref": "#/components/schemas/OraclePriceDto" },
+          "entryPriceUi": { "type": "string", "example": "148.52" },
+          "isDegen": { "type": "boolean", "example": false },
+          "key": {
+            "type": "string",
+            "description": "Position account pubkey",
+            "example": "A86eptJTdwqNCyWpgeczaKQyi76CBPmzfZDwQPqRG4Vs"
+          },
+          "leverageUi": { "type": "string", "example": "5.00" },
+          "liquidationPriceUi": { "type": "string", "example": "120.30" },
+          "marketSymbol": { "type": "string", "example": "SOL" },
+          "pnl": { "$ref": "#/components/schemas/PnlDto" },
+          "pnlPercentageWithFee": { "type": "string", "example": "11.95" },
+          "pnlPercentageWithoutFee": { "type": "string", "example": "12.50" },
+          "pnlWithFeeUsdUi": { "type": "string", "example": "11.95" },
+          "pnlWithoutFeeUsdUi": { "type": "string", "example": "12.50" },
+          "positionAccountData": {
+            "type": "string",
+            "description": "Raw position account data as base64 (client decodes via Anchor coder).\nOmitted for MagicBlock positions — they live inside the basket account,\nnot as standalone position accounts.",
+            "example": "qryP5HpA99AAAAAA..."
+          },
+          "sideUi": { "type": "string", "example": "Long" },
+          "sizeAmountUi": { "type": "string", "example": "3.37" },
+          "sizeAmountUiKmb": { "type": "string", "example": "3.37" },
+          "sizeUsdUi": { "type": "string", "example": "500.00" }
+        }
+      },
+      "PreviewExitFeeDto": {
+        "type": "object",
+        "required": ["positionKey", "closeAmountUsdUi"],
+        "properties": {
+          "closeAmountUsdUi": {
+            "type": "string",
+            "description": "USD amount to close in UI format",
+            "example": "500.00"
+          },
+          "positionKey": {
+            "type": "string",
+            "description": "Position account pubkey",
+            "example": "A86eptJTdwqNCyWpgeczaKQyi76CBPmzfZDwQPqRG4Vs"
+          }
+        }
+      },
+      "PreviewExitFeeResponseDto": {
+        "type": "object",
+        "required": ["exitFeeUsdUi", "exitFeeAmountUi", "exitPriceUi"],
+        "properties": {
+          "err": { "type": "string" },
+          "exitFeeAmountUi": { "type": "string", "example": "0.002700" },
+          "exitFeeUsdUi": { "type": "string", "example": "0.40" },
+          "exitPriceUi": { "type": "string", "example": "148.52" }
+        }
+      },
+      "PreviewLimitOrderFeesDto": {
+        "type": "object",
+        "required": ["marketSymbol", "inputAmountUi", "outputAmountUi", "side"],
+        "properties": {
+          "inputAmountUi": {
+            "type": "string",
+            "description": "Input (collateral) amount in UI format",
+            "example": "100.0"
+          },
+          "limitPrice": {
+            "type": "string",
+            "description": "Limit price in UI format (optional; uses live price if omitted)",
+            "example": "150.00"
+          },
+          "marketSymbol": {
+            "type": "string",
+            "description": "Market symbol (e.g. \"SOL\", \"BTC\")",
+            "example": "SOL"
+          },
+          "outputAmountUi": {
+            "type": "string",
+            "description": "Output (size) amount in UI format",
+            "example": "0.67"
+          },
+          "side": {
+            "$ref": "#/components/schemas/TradeType",
+            "description": "Trade side: LONG or SHORT"
+          },
+          "tradingFeeDiscountPercent": {
+            "type": "number",
+            "format": "double",
+            "description": "Fee discount percentage from staking (0-100)",
+            "example": 10.0
+          }
+        }
+      },
+      "PreviewLimitOrderFeesResponseDto": {
+        "type": "object",
+        "required": [
+          "entryPriceUi",
+          "entryFeeUsdUi",
+          "liquidationPriceUi",
+          "borrowRateUi"
+        ],
+        "properties": {
+          "borrowRateUi": { "type": "string", "example": "0.01200" },
+          "entryFeeUsdUi": { "type": "string", "example": "0.50" },
+          "entryPriceUi": { "type": "string", "example": "148.52" },
+          "err": { "type": "string" },
+          "liquidationPriceUi": { "type": "string", "example": "120.30" }
+        }
+      },
+      "PreviewMarginDto": {
+        "type": "object",
+        "required": ["positionKey", "marginDeltaUsdUi", "action"],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/MarginAction",
+            "description": "Action: ADD or REMOVE"
+          },
+          "marginDeltaUsdUi": {
+            "type": "string",
+            "description": "Margin delta in USD (UI format)",
+            "example": "50.00"
+          },
+          "positionKey": {
+            "type": "string",
+            "description": "Position account pubkey",
+            "example": "A86eptJTdwqNCyWpgeczaKQyi76CBPmzfZDwQPqRG4Vs"
+          }
+        }
+      },
+      "PreviewMarginResponseDto": {
+        "type": "object",
+        "required": [
+          "newLeverageUi",
+          "newLiquidationPriceUi",
+          "maxAmountUsdUi"
+        ],
+        "properties": {
+          "deltaUsdUi": {
+            "type": "string",
+            "description": "The USD delta for this action (deposit or withdraw), UI format.",
+            "example": "50.00"
+          },
+          "err": { "type": "string" },
+          "existingCollateralUsdUi": {
+            "type": "string",
+            "description": "Existing collateral in USD (UI format).",
+            "example": "100.00"
+          },
+          "existingLeverageUi": {
+            "type": "string",
+            "description": "Existing leverage (UI format).",
+            "example": "5.00"
+          },
+          "existingLiquidationPriceUi": {
+            "type": "string",
+            "description": "Existing liquidation price (UI format).",
+            "example": "95.00"
+          },
+          "maxAmountUsdUi": { "type": "string", "example": "500.00" },
+          "newCollateralUsdUi": {
+            "type": "string",
+            "description": "New collateral in USD after the action (UI format).",
+            "example": "150.00"
+          },
+          "newLeverageUi": { "type": "string", "example": "3.50" },
+          "newLiquidationPriceUi": { "type": "string", "example": "110.00" }
+        }
+      },
+      "PreviewTpSlDto": {
+        "type": "object",
+        "required": ["mode"],
+        "properties": {
+          "collateralUsdUi": { "type": "string" },
+          "entryPriceUi": { "type": "string" },
+          "marketSymbol": {
+            "type": "string",
+            "description": "For limit orders without an existing position -- inline fields"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Mode: \"forward\" (trigger price -> PnL), \"reverse_pnl\" (target PnL -> trigger price),\n\"reverse_roi\" (target ROI -> trigger price)",
+            "example": "forward"
+          },
+          "positionKey": {
+            "type": "string",
+            "description": "Position account pubkey (for existing positions)"
+          },
+          "side": { "$ref": "#/components/schemas/TradeType" },
+          "sizeUsdUi": { "type": "string" },
+          "targetPnlUsdUi": {
+            "type": "string",
+            "description": "Reverse PnL mode: target PnL in USD",
+            "example": "50.00"
+          },
+          "targetRoiPercent": {
+            "type": "number",
+            "format": "double",
+            "description": "Reverse ROI mode: target ROI percentage",
+            "example": "50"
+          },
+          "triggerPriceUi": {
+            "type": "string",
+            "description": "Forward mode: trigger price to calculate PnL for",
+            "example": "160.00"
+          }
+        }
+      },
+      "PreviewTpSlResponseDto": {
+        "type": "object",
+        "properties": {
+          "err": { "type": "string" },
+          "maxProfitPriceUi": {
+            "type": "string",
+            "description": "Max profit price for LONG positions — TP input must stay below this value. Null for SHORT or correlated markets.",
+            "example": "51000.00"
+          },
+          "pnlPercentage": {
+            "type": "string",
+            "description": "Forward mode output: PnL percentage",
+            "example": "50.00"
+          },
+          "pnlUsdUi": {
+            "type": "string",
+            "description": "Forward mode output: estimated PnL in USD",
+            "example": "50.00"
+          },
+          "triggerPriceUi": {
+            "type": "string",
+            "description": "Reverse mode output: computed trigger price",
+            "example": "160.00"
+          }
+        }
+      },
+      "PriceResponse": {
+        "type": "object",
+        "required": [
+          "price",
+          "exponent",
+          "confidence",
+          "priceUi",
+          "timestampUs",
+          "marketSession"
+        ],
+        "properties": {
+          "confidence": { "type": "integer", "format": "int64" },
+          "exponent": { "type": "integer", "format": "int32" },
+          "marketSession": { "type": "string" },
+          "price": { "type": "integer", "format": "int64" },
+          "priceUi": { "type": "number", "format": "double" },
+          "timestampUs": { "type": "integer", "format": "int64", "minimum": 0 }
+        }
+      },
+      "PrivilegeType": {
+        "type": "string",
+        "enum": ["NONE", "REFERRAL", "STAKE"]
+      },
+      "RemoveCollateralDto": {
+        "type": "object",
+        "required": [
+          "positionKey",
+          "withdrawAmountUsdUi",
+          "withdrawTokenSymbol",
+          "owner"
+        ],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey (always required — operates on existing position)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "positionKey": {
+            "type": "string",
+            "description": "Existing position account pubkey",
+            "example": "A86eptJTdwqNCyWpgeczaKQyi76CBPmzfZDwQPqRG4Vs"
+          },
+          "slippagePercentage": {
+            "type": "string",
+            "description": "Slippage tolerance percentage (default: 0.5)",
+            "example": "0.5"
+          },
+          "withdrawAmountUsdUi": {
+            "type": "string",
+            "description": "USD amount to remove in UI format",
+            "example": "25.00"
+          },
+          "withdrawTokenSymbol": {
+            "type": "string",
+            "description": "Token symbol to receive (e.g. \"USDC\", \"SOL\")",
+            "example": "USDC"
+          }
+        }
+      },
+      "RemoveCollateralResponseDto": {
+        "type": "object",
+        "required": [
+          "existingCollateralUsd",
+          "newCollateralUsd",
+          "existingLeverage",
+          "newLeverage",
+          "existingLiquidationPrice",
+          "newLiquidationPrice",
+          "receiveAmountUi",
+          "receiveAmountUsdUi",
+          "maxWithdrawableUsd"
+        ],
+        "properties": {
+          "err": {
+            "type": "string",
+            "description": "Error message if computation failed"
+          },
+          "existingCollateralUsd": {
+            "type": "string",
+            "description": "Current collateral in USD (UI format)",
+            "example": "100.00"
+          },
+          "existingLeverage": {
+            "type": "string",
+            "description": "Current leverage",
+            "example": "5.00"
+          },
+          "existingLiquidationPrice": {
+            "type": "string",
+            "description": "Current liquidation price (UI format)",
+            "example": "120.30"
+          },
+          "maxWithdrawableUsd": {
+            "type": "string",
+            "description": "Max withdrawable in USD (UI format)",
+            "example": "80.00"
+          },
+          "newCollateralUsd": {
+            "type": "string",
+            "description": "Collateral after removing (UI format)",
+            "example": "75.00"
+          },
+          "newLeverage": {
+            "type": "string",
+            "description": "New leverage after removing collateral",
+            "example": "6.67"
+          },
+          "newLiquidationPrice": {
+            "type": "string",
+            "description": "New liquidation price after removing collateral (UI format)",
+            "example": "130.00"
+          },
+          "receiveAmountUi": {
+            "type": "string",
+            "description": "Amount to receive in withdraw token (UI format)",
+            "example": "25.00"
+          },
+          "receiveAmountUsdUi": {
+            "type": "string",
+            "description": "USD value of receive amount (UI format)",
+            "example": "25.00"
+          },
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction",
+            "example": "AQAAAA..."
+          }
+        }
+      },
+      "ReversePositionDto": {
+        "type": "object",
+        "required": ["positionKey", "owner"],
+        "properties": {
+          "degenMode": {
+            "type": "boolean",
+            "description": "Enable degen mode for the new position",
+            "example": false
+          },
+          "enableFundedWallet": {
+            "type": "boolean",
+            "description": "Enable funded wallet privilege",
+            "example": false
+          },
+          "owner": {
+            "type": "string",
+            "description": "Wallet pubkey (required — builds combined close+open transaction)",
+            "example": "bRXn4PPnUCLKP3kdHbX6FFQFpw2AhFzBVMgo4ZaWvtfb"
+          },
+          "positionKey": {
+            "type": "string",
+            "description": "Position account pubkey to reverse",
+            "example": "A86eptJTdwqNCyWpgeczaKQyi76CBPmzfZDwQPqRG4Vs"
+          },
+          "privilege": {
+            "$ref": "#/components/schemas/PrivilegeType",
+            "description": "Explicit privilege level (see OpenPositionDto for details)"
+          },
+          "slippagePercentage": {
+            "type": "string",
+            "description": "Slippage tolerance percentage (default: 0.5)",
+            "example": "0.5"
+          },
+          "tokenStakeFafAccount": {
+            "type": "string",
+            "description": "Token stake FAF account pubkey (for fee discounts)",
+            "example": "FAFxR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          },
+          "tradingFeeDiscountPercent": {
+            "type": "number",
+            "format": "double",
+            "description": "Fee discount percentage from staking (0-100)",
+            "example": 10.0
+          },
+          "userReferralAccount": {
+            "type": "string",
+            "description": "User referral account pubkey (for referral privilege)",
+            "example": "REF1xR2D3YBQu4A7t5WCbTfLJ88gkQTZ2c8oKGPujNbqo"
+          }
+        }
+      },
+      "ReversePositionResponseDto": {
+        "type": "object",
+        "required": [
+          "closeReceiveUsd",
+          "closeFees",
+          "closeSettledPnl",
+          "newSide",
+          "newLeverage",
+          "newEntryPrice",
+          "newLiquidationPrice",
+          "newSizeUsd",
+          "newSizeAmountUi",
+          "newCollateralUsd",
+          "openEntryFee"
+        ],
+        "properties": {
+          "closeFees": {
+            "type": "string",
+            "description": "Total close fees in USD",
+            "example": "0.36"
+          },
+          "closeReceiveUsd": {
+            "type": "string",
+            "description": "USD received from closing the existing position (after fees)",
+            "example": "105.23"
+          },
+          "closeSettledPnl": {
+            "type": "string",
+            "description": "Settled PnL from the close in USD (negative prefixed with \"-\")",
+            "example": "5.23"
+          },
+          "err": {
+            "type": "string",
+            "description": "Error message if computation failed"
+          },
+          "newCollateralUsd": {
+            "type": "string",
+            "description": "Collateral used for the new position in USD (UI format, after 2% haircut)",
+            "example": "98.00"
+          },
+          "newEntryPrice": {
+            "type": "string",
+            "description": "New position entry price (UI format)",
+            "example": "148.52"
+          },
+          "newLeverage": {
+            "type": "string",
+            "description": "New position leverage",
+            "example": "5.00"
+          },
+          "newLiquidationPrice": {
+            "type": "string",
+            "description": "New position liquidation price (UI format)",
+            "example": "175.00"
+          },
+          "newSide": {
+            "type": "string",
+            "description": "New position side: \"Long\" or \"Short\"",
+            "example": "Short"
+          },
+          "newSizeAmountUi": {
+            "type": "string",
+            "description": "New position size in target token (UI format)",
+            "example": "3.37"
+          },
+          "newSizeUsd": {
+            "type": "string",
+            "description": "New position size in USD (UI format)",
+            "example": "500.00"
+          },
+          "openEntryFee": {
+            "type": "string",
+            "description": "Entry fee for the new position in USD",
+            "example": "0.45"
+          },
+          "transactionBase64": {
+            "type": "string",
+            "description": "Base64-encoded versioned transaction (close + open combined)",
+            "example": "AQAAAA..."
+          }
+        }
+      },
+      "SpotAsset": {
+        "type": "object",
+        "required": ["assetId", "name", "symbol", "category"],
+        "properties": {
+          "assetId": { "type": "string" },
+          "canonicalMarket": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/components/schemas/SpotCanonicalMarket" }
+            ]
+          },
+          "category": { "type": "string" },
+          "imageUrl": { "type": ["string", "null"] },
+          "name": { "type": "string" },
+          "primaryVariant": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/components/schemas/SpotVariant" }
+            ]
+          },
+          "stats": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/components/schemas/SpotStats" }
+            ]
+          },
+          "symbol": { "type": "string" }
+        }
+      },
+      "SpotCanonicalMarket": {
+        "type": "object",
+        "properties": {
+          "asOf": { "type": ["integer", "null"], "format": "int64" },
+          "coinId": { "type": ["string", "null"] },
+          "lastFetchedAt": { "type": ["integer", "null"], "format": "int64" },
+          "marketCap": { "type": ["number", "null"], "format": "double" },
+          "price": { "type": ["number", "null"], "format": "double" },
+          "priceChange24hPercent": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "providerLastUpdatedAt": {
+            "type": ["integer", "null"],
+            "format": "int64"
+          },
+          "source": { "type": ["string", "null"] },
+          "symbol": { "type": ["string", "null"] },
+          "volume24hUSD": { "type": ["number", "null"], "format": "double" }
+        }
+      },
+      "SpotPagination": {
+        "type": "object",
+        "required": ["offset", "limit", "total", "hasMore"],
+        "properties": {
+          "hasMore": { "type": "boolean" },
+          "limit": { "type": "integer", "format": "int64" },
+          "nextOffset": { "type": ["integer", "null"], "format": "int64" },
+          "offset": { "type": "integer", "format": "int64" },
+          "total": { "type": "integer", "format": "int64" }
+        }
+      },
+      "SpotStats": {
+        "type": "object",
+        "properties": {
+          "circulatingSupply": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "fdv": { "type": ["number", "null"], "format": "double" },
+          "liquidity": { "type": ["number", "null"], "format": "double" },
+          "marketCap": { "type": ["number", "null"], "format": "double" },
+          "price": { "type": ["number", "null"], "format": "double" },
+          "priceChange1hPercent": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "priceChange24hPercent": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "totalSupply": { "type": ["number", "null"], "format": "double" },
+          "volume24hUSD": { "type": ["number", "null"], "format": "double" },
+          "volume30dUSD": { "type": ["number", "null"], "format": "double" }
+        }
+      },
+      "SpotTokensResponse": {
+        "type": "object",
+        "required": ["listId", "assets"],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SpotAsset" }
+          },
+          "listId": { "type": "string" },
+          "pagination": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/components/schemas/SpotPagination" }
+            ]
+          }
+        }
+      },
+      "SpotVariant": {
+        "type": "object",
+        "required": ["variantId", "mint"],
+        "properties": {
+          "issuer": { "type": ["string", "null"] },
+          "issuerUrl": { "type": ["string", "null"] },
+          "kind": { "type": ["string", "null"] },
+          "label": { "type": ["string", "null"] },
+          "liquidityTier": { "type": ["string", "null"] },
+          "market": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/components/schemas/SpotVariantMarket" }
+            ]
+          },
+          "mint": { "type": "string" },
+          "name": { "type": ["string", "null"] },
+          "symbol": { "type": ["string", "null"] },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "trustTier": { "type": ["string", "null"] },
+          "variantId": { "type": "string" }
+        }
+      },
+      "SpotVariantMarket": {
+        "type": "object",
+        "properties": {
+          "asOf": { "type": ["integer", "null"], "format": "int64" },
+          "circulatingSupply": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "decimals": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "fdv": { "type": ["number", "null"], "format": "double" },
+          "holder": { "type": ["integer", "null"], "format": "int64" },
+          "lastFetchedAt": { "type": ["integer", "null"], "format": "int64" },
+          "lastTradeAt": { "type": ["integer", "null"], "format": "int64" },
+          "liquidity": { "type": ["number", "null"], "format": "double" },
+          "logoURI": { "type": ["string", "null"] },
+          "marketCap": { "type": ["number", "null"], "format": "double" },
+          "metricsSource": { "type": ["string", "null"] },
+          "price": { "type": ["number", "null"], "format": "double" },
+          "priceChange1hPercent": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "priceChange24hPercent": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "source": { "type": ["string", "null"] },
+          "totalSupply": { "type": ["number", "null"], "format": "double" },
+          "trade1h": { "type": ["integer", "null"], "format": "int64" },
+          "trade24h": { "type": ["integer", "null"], "format": "int64" },
+          "uniqueWallet1h": { "type": ["integer", "null"], "format": "int64" },
+          "uniqueWallet24h": { "type": ["integer", "null"], "format": "int64" },
+          "volume1hUSD": { "type": ["number", "null"], "format": "double" },
+          "volume24hUSD": { "type": ["number", "null"], "format": "double" }
+        }
+      },
+      "TokenDto": {
+        "type": "object",
+        "required": [
+          "symbol",
+          "mintKey",
+          "decimals",
+          "usdPrecision",
+          "tokenPrecision",
+          "isStable",
+          "isVirtual",
+          "lazerId",
+          "pythTicker",
+          "pythPriceId",
+          "isToken2022"
+        ],
+        "properties": {
+          "decimals": { "type": "integer", "format": "int32", "minimum": 0 },
+          "isStable": { "type": "boolean" },
+          "isToken2022": { "type": "boolean" },
+          "isVirtual": { "type": "boolean" },
+          "lazerId": { "type": "integer", "format": "int64", "minimum": 0 },
+          "mintKey": { "type": "string" },
+          "pythPriceId": { "type": "string" },
+          "pythTicker": { "type": "string" },
+          "symbol": { "type": "string" },
+          "tokenPrecision": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "usdPrecision": { "type": "integer", "format": "int32", "minimum": 0 }
+        }
+      },
+      "TradeType": { "type": "string", "enum": ["LONG", "SHORT", "SWAP"] },
+      "TriggerQuoteDto": {
+        "type": "object",
+        "description": "Projected PnL and fee breakdown for a TP/SL trigger price",
+        "required": [
+          "exitPriceUi",
+          "profitUsdUi",
+          "lossUsdUi",
+          "exitFeeUsdUi",
+          "receiveUsdUi",
+          "pnlPercentage"
+        ],
+        "properties": {
+          "exitFeeUsdUi": {
+            "type": "string",
+            "description": "Exit fee in USD after discount (UI format)",
+            "example": "0.45"
+          },
+          "exitPriceUi": {
+            "type": "string",
+            "description": "Exit price after spread (UI format)",
+            "example": "155.00"
+          },
+          "lossUsdUi": {
+            "type": "string",
+            "description": "Projected loss in USD (UI format, \"0\" if profit)",
+            "example": "0"
+          },
+          "maxProfitPriceUi": {
+            "type": "string",
+            "description": "Max profit price for LONG TP — TP input must stay below this value. Null for SHORT or stop-loss.",
+            "example": "51000.00"
+          },
+          "pnlPercentage": {
+            "type": "string",
+            "description": "PnL as percentage of collateral (e.g. \"12.50\" = 12.5%)",
+            "example": "12.50"
+          },
+          "profitUsdUi": {
+            "type": "string",
+            "description": "Projected profit in USD (UI format, \"0\" if loss)",
+            "example": "12.50"
+          },
+          "receiveUsdUi": {
+            "type": "string",
+            "description": "Net receive amount in USD (UI format)",
+            "example": "112.05"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    { "name": "Health", "description": "Service health check" },
+    {
+      "name": "Raw Accounts",
+      "description": "Raw on-chain program account data — unprocessed Anchor-deserialized JSON"
+    },
+    {
+      "name": "Positions",
+      "description": "Enriched positions with PnL, leverage, and liquidation price"
+    },
+    {
+      "name": "Orders",
+      "description": "Enriched orders — limit, take-profit, and stop-loss"
+    },
+    {
+      "name": "Tokens",
+      "description": "Token metadata from pool configuration"
+    },
+    {
+      "name": "Spot",
+      "description": "Curated spot token lists proxied from tokens.xyz"
+    },
+    {
+      "name": "Prices",
+      "description": "Real-time oracle prices from Pyth Lazer"
+    },
+    {
+      "name": "Pool Data",
+      "description": "Aggregated pool statistics (TVL, utilization, LP price)"
+    },
+    {
+      "name": "Trading",
+      "description": "Build transactions for opening, closing, and reversing positions"
+    },
+    {
+      "name": "Collateral",
+      "description": "Build transactions for adding or removing collateral"
+    },
+    {
+      "name": "Trigger Orders",
+      "description": "Build transactions for take-profit and stop-loss trigger orders"
+    },
+    {
+      "name": "Account Setup",
+      "description": "Build transactions for token staking and referral account creation"
+    },
+    {
+      "name": "Previews",
+      "description": "Fee, PnL, and margin preview calculations (no transaction built)"
+    },
+    {
+      "name": "Streaming",
+      "description": "Real-time enriched positions and orders via WebSocket"
+    },
+    { "name": "V2 Health", "description": "MagicBlock ER health check" },
+    {
+      "name": "V2 Raw Accounts",
+      "description": "MagicBlock raw on-chain account data from Ephemeral Rollup"
+    },
+    {
+      "name": "V2 Streaming",
+      "description": "Live basket snapshot (raw bytes + per-position metrics) via WS or one-shot HTTP"
+    },
+    { "name": "V2 Tokens", "description": "MagicBlock token metadata" },
+    {
+      "name": "V2 Prices",
+      "description": "MagicBlock real-time oracle prices (shared Pyth Lazer)"
+    },
+    { "name": "V2 Pool Data", "description": "MagicBlock pool statistics" },
+    {
+      "name": "V2 Trading",
+      "description": "MagicBlock transaction builder for ER trading"
+    },
+    {
+      "name": "V2 Collateral",
+      "description": "MagicBlock collateral management"
+    },
+    {
+      "name": "V2 Trigger Orders",
+      "description": "MagicBlock take-profit and stop-loss trigger orders"
+    },
+    {
+      "name": "V2 Account Setup",
+      "description": "MagicBlock basket, deposit ledger, and delegation setup"
+    },
+    {
+      "name": "V2 Previews",
+      "description": "MagicBlock fee, PnL, and TP/SL preview calculations"
+    }
+  ]
+}

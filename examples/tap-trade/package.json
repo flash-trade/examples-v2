@@ -1,0 +1,39 @@
+{
+  "name": "tap-trade",
+  "private": true,
+  "version": "0.2.0",
+  "description": "Tap trading on Flash V2 \u00d7 MagicBlock: connect a wallet, Enable One-Click Trading once, then tap SHORT/LONG on a full-bleed live chart \u2014 fills confirm on the Ephemeral Rollup in ~30-50ms.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@magicblock-labs/gum-sdk": "^3.0.10",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/wallet-adapter-phantom": "^0.9.29",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/wallet-adapter-solflare": "^0.6.28",
+    "@solana/web3.js": "^1.98.2",
+    "flash-v2": "workspace:*",
+    "next": "^15.5.19",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/bn.js": "^5.1.5",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flash-trade/examples-v2"
+  }
+}

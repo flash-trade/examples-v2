@@ -1,0 +1,131 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   app/globals.css — the entire design language: terminal-grade layered
+   off-blacks with 1px hairlines, desaturated mint LONG / refined red SHORT,
+   Flash yellow reserved for the bolt mark alone. Space Grotesk for the few
+   display moments, system sans for UI copy, monospace tabular numerals
+   everywhere a number lives. THE HARD PART: restraint — flat panels, sharp
+   2–6px radii, no glow chrome; motion only on state change. TW v4.
+   ───────────────────────────────────────────────────────────────────────── */
+
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0b0d0c;            /* green-tinted off-black — never pure #000 */
+  --color-panel: #101312;         /* flat chrome surfaces */
+  --color-panel2: #151917;        /* raised: inner panels, menus */
+  --color-sheet: #0e110f;         /* sheets sit between bg and panel */
+  --color-edge: #1e2421;          /* the 1px hairline — everywhere */
+  --color-edge2: #2b332e;         /* stronger hairline for emphasis */
+  --color-ink: #e8ebe9;
+  --color-dim: #9aa5a0;
+  --color-faint: #5c6661;
+  --color-long: #34d399;          /* desaturated mint — LONG, live, confirm */
+  --color-short: #f43f5e;         /* refined red — SHORT, errors */
+  --color-accent: #ffe600;        /* Flash bolt yellow — the logo mark ONLY */
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "JetBrains Mono", Consolas, monospace;
+}
+
+html {
+  background: var(--color-bg);
+  color-scheme: dark;
+}
+
+body {
+  font-feature-settings: "tnum" 1;
+  overscroll-behavior: none;
+}
+
+::selection {
+  background: rgb(52 211 153 / 0.22);
+}
+
+/* Keyboard focus — one mint ring, 1px offset, on every control. Pointer taps
+   never show it (:focus-visible); text inputs keep their border focus state. */
+:where(button, a, [role="button"]):focus-visible {
+  outline: 1px solid var(--color-long);
+  outline-offset: 1px;
+}
+:where(input, textarea):focus-visible {
+  outline: none;
+}
+
+/* The 1CT CTA — Flash's mint gradient, flattened to a subtle two-stop.
+   Reserved for "Enable One-Click Trading" alone; every other affirmative
+   CTA is solid mint. */
+.cta-mint {
+  background: linear-gradient(180deg, #41dba2 0%, #2bbd85 100%);
+  color: #07120d;
+}
+
+/* Leverage slider — flat 4px track, square-ish mint thumb, zero glow.
+   The mint progress fill is painted inline (linear-gradient stop) by the
+   trade sheet so it tracks the live value. */
+.lev-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--color-edge2);
+  outline: none;
+}
+.lev-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: none;
+  background: var(--color-long);
+  cursor: pointer;
+}
+.lev-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: none;
+  background: var(--color-long);
+  cursor: pointer;
+}
+.lev-range:disabled { opacity: 0.35; }
+.lev-range:focus-visible { outline: 1px solid var(--color-long); outline-offset: 2px; }
+
+/* Bottom sheets slide on transform only; backdrop fades on opacity only. */
+.sheet-up { transition: transform 380ms cubic-bezier(0.16, 1, 0.3, 1); will-change: transform; }
+.backdrop-fade { transition: opacity 240ms ease; }
+
+/* Slot-reel digit columns (RollingNumber) — the signature tick. */
+.reel-col { transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1); will-change: transform; }
+
+/* Fill confirmation — a 450ms brightness sweep on the tapped control.
+   Replaces spinners entirely: optimistic state claims the fill, this flash
+   celebrates the on-chain confirm. Retriggered via key-remount at the call site. */
+@keyframes fill-flash {
+  0%   { filter: brightness(1.35); box-shadow: 0 0 0 0 rgb(52 211 153 / 0); }
+  30%  { box-shadow: 0 0 18px 1px rgb(52 211 153 / 0.20); }
+  100% { filter: brightness(1); box-shadow: 0 0 0 0 rgb(52 211 153 / 0); }
+}
+.fill-flash { animation: fill-flash 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Soft breathing for "filling…" states and the live dot. */
+@keyframes soft-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+.soft-pulse { animation: soft-pulse 1.6s ease-in-out infinite; }
+
+/* New log/step rows slide in (state change only — never on first paint of a page). */
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.row-in { animation: row-in 0.35s ease-out; }
+
+/* Latency bars grow from zero on each new measurement. */
+@keyframes bar-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.bar-grow { transform-origin: left center; animation: bar-grow 0.5s cubic-bezier(0.16, 1, 0.3, 1); }

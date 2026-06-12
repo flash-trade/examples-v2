@@ -1,0 +1,28 @@
+# secrets & local config — never commit keys (see SECURITY.md)
+.env
+.env.*
+!.env.example
+*.keypair.json
+keypair*.json
+
+# deps & builds
+node_modules/
+.next/
+dist/
+out/
+*.tsbuildinfo
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+
+# local phase context (superstack)
+.superstack/
+
+# browser-agent session logs — never tracked (audit P0-2)
+.playwright-cli/
+.playwright/
+
+# PAI Algorithm work artifacts — written into the repo cwd by tooling, never ship
+MEMORY/

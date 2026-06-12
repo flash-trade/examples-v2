@@ -1,0 +1,38 @@
+# flash-magicblock-starter
+
+> TypeScript starter for Flash Trade V2 — perpetual futures on a MagicBlock Ephemeral Rollup (Solana), consumed entirely through a hosted REST API. Trades confirm in ~30–50 ms on the rollup; account setup/withdrawal settle on the Solana base chain. Mainnet — real funds. The typed client, signing helpers, safety guards, and live-state streaming are included.
+
+Key facts: the V2 API is the only public surface (no public SDK). Transactions come back partially signed, base64-encoded — sign the owner slot and submit (trading → ER RPC, setup/withdrawal → base RPC; never replace the blockhash). The API base is `https://flashapi.trade/v2`.
+
+## Docs
+
+- [README](README.md): landing page — 60-second proof, mental model, learning path
+- [GOTCHAS](GOTCHAS.md): the sharp edges (error channels, 6057 price rule, 97% close threshold, $11 rule) with fixes
+- [AGENTS](AGENTS.md): commands, conventions, where-to-edit map, domain rules
+- [SECURITY](SECURITY.md): scope, key handling, disclosure
+
+## Package
+
+- [client](packages/flash-v2/src/client.ts): FlashV2Client — all 36 endpoints, errors normalized
+- [types](packages/flash-v2/src/types.ts): request/response types, faithful to the live backend
+- [sign](packages/flash-v2/src/sign.ts): decode → sign → submit with latency measurement
+- [guards](packages/flash-v2/src/guards.ts): encoded footguns (collateral, trigger prices, full-close, settle)
+- [owner-stream](packages/flash-v2/src/owner-stream.ts): live positions WebSocket with merge + fallback
+- [network](packages/flash-v2/src/network.ts): the mainnet config: API base + both RPCs
+- [lifecycle](packages/flash-v2/src/lifecycle.ts): runnable walkthrough of the full account lifecycle
+- [hello](packages/flash-v2/src/hello.ts): first call — price + quote, no wallet
+
+## Examples
+
+- [tap-trade](examples/tap-trade/README.md): one-tap trading with a real latency HUD; session keys + demo wallet
+- [copy-trade](examples/copy-trade/README.md): mirror a leader by diffing owner snapshots; collateral-ratio sizing, non-custodial
+- [_template](examples/_template/README.md): copy this to start your own project
+
+## Reference
+
+- [openapi.v2.json](openapi.v2.json): the vendored API spec (V2 paths under /v2; V1 included for context) for codegen and lookup
+
+## Optional
+
+- [Live Swagger UI](https://flashapi.trade/docs): interactive API documentation
+- [MagicBlock docs](https://docs.magicblock.gg): Ephemeral Rollup concepts (delegate → execute → commit → undelegate)

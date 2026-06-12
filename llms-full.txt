@@ -1,0 +1,1811 @@
+# flash-magicblock-starter — full context (llms-full.txt)
+
+> Expanded version of llms.txt: the complete docs + base-package source inlined for LLM consumption.
+
+─────────────────────────────────────────────────────────────
+FILE: README.md
+─────────────────────────────────────────────────────────────
+<div align="center">
+
+# ⚡ Perps at 30 ms.
+
+### The official starter for building on Flash Trade's MagicBlock layer
+
+Clone to your first ephemeral-rollup trade in minutes — mainnet by default, mainnet one env var away.
+
+[![CI](https://github.com/flash-trade/examples-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/flash-trade/examples-v2/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat)](./LICENSE)
+[![API](https://img.shields.io/badge/API-live-fbbf24?style=flat)](https://flashapi.trade/v2/health)
+[![Network](https://img.shields.io/badge/mainnet-default-3b82f6?style=flat)](#networks)
+[![Solana](https://img.shields.io/badge/Solana-perpetuals-9945FF?style=flat&logo=solana)](https://flash.trade)
+[![MagicBlock](https://img.shields.io/badge/MagicBlock-Ephemeral_Rollups-a855f7?style=flat)](https://docs.magicblock.gg)
+
+**[Quickstart](#the-60-second-proof) • [Examples](#learning-path) • [Gotchas](./GOTCHAS.md) • [API Docs](https://flashapi.trade/docs) • [Workshop](https://luma.com/x57f72d7)**
+
+</div>
+
+---
+
+## What is this?
+
+**Flash Trade V2** runs perpetual futures on a [MagicBlock Ephemeral Rollup](https://docs.magicblock.gg) — your account is *delegated* to a rollup validator, trades confirm in **~30–50 ms** for near-zero cost, and state commits back to Solana every 10 s. The entire public surface is a **hosted REST API** (no SDK needed — this repo includes the typed client). You're early: **this starter is the first public client of V2.**
+
+## The 60-second proof
+
+No clone, no auth — the API is live right now:
+
+```bash
+curl https://flashapi.trade/v2/prices/SOL
+```
+
+Then make it yours:
+
+```bash
+git clone https://github.com/flash-trade/examples-v2
+cd examples-v2
+bun install
+bun run hello        # live SOL price + a real trade quote — no wallet needed
+bun run lifecycle    # the full account walkthrough (dry-run, signs nothing)
+```
+
+## See it
+
+**`examples/tap-trade`** — one tap → market long/short → **confirmed on the Ephemeral Rollup with a live latency HUD** (~30–50 ms vs ~400 ms on L1), zero wallet popups. Three minutes to run: [examples/tap-trade](./examples/tap-trade).
+
+## The mental model
+
+One account lifecycle, two chains. Setup and withdrawal happen on **Solana (base chain)**; trading happens on the **Ephemeral Rollup**:
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant Base as Solana (base chain)
+    participant ER as Ephemeral Rollup
+
+    Note over You,Base: one-time setup
+    You->>Base: init-basket · init-deposit-ledger
+    You->>Base: delegate-basket → MagicBlock validator
+    You->>Base: deposit-direct (USDC)
+    Base-->>ER: basket cloned
+
+    Note over You,ER: the fast loop — ~30 ms each
+    loop trade
+        You->>ER: open / close / reverse / TP-SL / limit
+        ER-->>Base: auto-commit every 10 s
+    end
+
+    Note over You,Base: exit
+    You->>Base: request-withdrawal · execute-withdrawal
+```
+
+Two rules that prevent 90% of confusion: **trading txs submit to the ER RPC, setup/withdrawal to the base RPC** — and every transaction comes back **partially signed** (you add only your signature; never touch the blockhash). The client handles both: [`packages/flash-v2`](./packages/flash-v2).
+
+## Learning path
+
+| # | Start here | What you build | The hard part it teaches | Time |
+|---|---|---|---|---|
+| 1 | [`bun run hello`](./packages/flash-v2/src/hello.ts) | price + real quote, no wallet | the read/quote loop | 1 min |
+| 2 | [`bun run lifecycle`](./packages/flash-v2/src/lifecycle.ts) | the whole account lifecycle | two chains, ordering, settles | 5 min |
+| 3 | [`examples/tap-trade`](./examples/tap-trade) ★ | one-tap trading + latency HUD | session keys, ER speed, live WS state | 3 min |
+| 4 | `examples/copy-trade` *(next)* | mirror a leader's trades | snapshot diffing, proportional sizing | — |
+
+Build your own from [`examples/_template`](./examples/_template) — the repo map:
+
+```mermaid
+flowchart LR
+    A["packages/flash-v2<br/><i>the typed client — edit to add endpoints</i>"] --> B["examples/tap-trade<br/><i>edit for trading UX ideas</i>"]
+    A --> C["examples/_template<br/><i>copy this to start YOUR project</i>"]
+    A --> D["lifecycle.ts<br/><i>the canonical walkthrough</i>"]
+    E["GOTCHAS.md<br/><i>the sharp edges</i>"] -.explains.-> A
+```
+
+## The sharp edges
+
+**The API has real footguns** — encoded as [guards](./packages/flash-v2/src/guards.ts) and documented in [GOTCHAS.md](./GOTCHAS.md). A taste:
+
+| Gotcha | One line |
+|---|---|
+| [`err` inside HTTP 200](./GOTCHAS.md#1-three-error-channels) | trading endpoints "succeed" with an error in the body — always check `err` |
+| [No oracle validation](./GOTCHAS.md#3-the-api-wont-stop-an-invalid-trigger-price) | the API builds txs that fail on-chain with `6057` — validate prices client-side |
+| [97% = full close](./GOTCHAS.md#4-the-97-full-close-threshold) | "close 98%" silently becomes a FULL close (different instruction) |
+| [≥ $11 collateral](./GOTCHAS.md#16-the-11-rule) | a "$10 position" can't take TP/SL after fees |
+
+**[→ all 18, with fixes](./GOTCHAS.md)**
+
+## Networks
+
+| | Mainnet (default) | Mainnet |
+|---|---|---|
+| V2 API | `https://flashapi.trade/v2` | `https://flashapi.trade/v2` |
+| ER RPC (trading) | `https://flash.magicblock.xyz` | `https://flash.magicblock.xyz` |
+| Base RPC (setup/withdraw) | any mainnet RPC | any mainnet RPC |
+
+Switch = edit `FLASH_V2_BASE_URL` (+ RPCs) in `.env`. Mainnet is the full playground (mainnet V2 currently runs a staging pool config). Interactive API docs: [Swagger](https://flashapi.trade/docs) · spec vendored at [`openapi.v2.json`](./openapi.v2.json).
+
+## For AI agents
+
+Point your agent at this repo — it's built for them: **[AGENTS.md](./AGENTS.md)** (commands, conventions, where to edit) · **[llms.txt](./llms.txt)** (curated map) · **[openapi.v2.json](./openapi.v2.json)** (all 36 endpoints, typed) · every client method has TSDoc with examples. A reasonable first prompt: *"Using packages/flash-v2 and GOTCHAS.md, build me a trailing-stop bot."*
+
+## Solana Blitz v5
+
+This starter exists for [**Solana Blitz v5**](https://luma.com/x57f72d7) — MagicBlock's trading-themed weekend hackathon. Eligibility requires using **Ephemeral Rollups**; building on Flash V2 through this repo qualifies (your basket is delegated to the ER and your trades execute there). Prizes: MagicBlock's pool **+ a 50% match from Flash Trade** on every tier. Community-voted — *working demos win*. Support during the event: MagicBlock Telegram + the workshop linked above.
+
+---
+
+<div align="center">
+
+[Security](./SECURITY.md) · [MIT](./LICENSE)
+
+Built by [Flash Trade](https://flash.trade) ⚡ Powered by [MagicBlock](https://magicblock.gg) · Prices by [Pyth](https://pyth.network)
+
+</div>
+
+─────────────────────────────────────────────────────────────
+FILE: GOTCHAS.md
+─────────────────────────────────────────────────────────────
+# GOTCHAS — the sharp edges of Flash V2
+
+We hit every one of these so you don't have to. Each entry: **symptom → why → fix**. The fixes ship as code in [`packages/flash-v2/src/guards.ts`](./packages/flash-v2/src/guards.ts) wherever possible.
+
+---
+
+## 1. Three error channels
+
+**Symptom:** your error handling works on one endpoint and silently misses failures on another.
+**Why:** the API has three styles — trading/preview endpoints return **HTTP 200 with `err` in the body**; trigger/limit endpoints return **HTTP 400 with a plain-text body**; setup/withdrawal endpoints return a **bare HTTP 500 with an empty body** (the reason only exists in server logs).
+**Fix:** the client normalizes all three into one `FlashV2Error` with a `channel` field. If you fetch manually, replicate that — see [`errors.ts`](./packages/flash-v2/src/errors.ts).
+
+## 2. `err` arrives inside HTTP 200
+
+**Symptom:** `res.ok` is true, you proceed, and there is no transaction.
+**Why:** trading endpoints report failures like `"Position is empty"` or `"Swap not supported on MagicBlock"` as a 200 body with `err` set.
+**Fix:** always branch on `body.err` (the client throws for you via `assertNoErr`).
+
+## 3. The API won't stop an invalid trigger price
+
+**Symptom:** the API happily returns `transactionBase64` for your limit/TP/SL — then the chain rejects it with custom error **6057 `InvalidLimitPrice`**.
+**Why:** the backend does **zero** oracle-side validation of trigger prices; the program validates against the live mark at execution.
+**Fix:** validate client-side first: **LONG → limit < mark, TP > mark, SL < mark** (SHORT is the mirror). `guards.validateTriggerPrice()` encodes it.
+
+## 4. The 97% full-close threshold
+
+**Symptom:** you request a "98% partial close" and your whole position disappears.
+**Why:** the program treats `inputUsdUi ≥ 97% of position size` (or `"0"`) as a **FULL close** — a different on-chain instruction with different response fields (`lockAndUnsettledFeeUsd` only appears on partials).
+**Fix:** `guards.isFullClose(closeUsd, sizeUsd)` tells you which instruction you'll actually get. Design close UIs around the threshold.
+
+## 5. Two chains, one flow
+
+**Symptom:** a perfectly built transaction fails with a blockhash/landing error.
+**Why:** trading txs are built against the **Ephemeral Rollup** blockhash and must be submitted to the **ER RPC**; setup + withdrawal txs are built against the **base-chain** blockhash and must go to a **base RPC**. Mixing them fails.
+**Fix:** every builder method's TSDoc names its chain; `network.erRpc` / `network.baseRpc` keep them side by side. The [lifecycle](./packages/flash-v2/src/lifecycle.ts) shows the routing.
+
+## 6. The lifecycle has a strict order (and the API won't enforce it)
+
+**Symptom:** open-position errors on a fresh wallet.
+**Why:** the chain requires **init-basket → init-deposit-ledger → delegate-basket → deposit → trade → withdraw**. The API exposes each step independently and never checks ordering — the program does.
+**Fix:** follow `lifecycle.ts`. Detect "not set up" via `owner(pubkey).basketPubkey == null`.
+
+## 7. The WS sends two frame types — merge them or go stale
+
+**Symptom:** PnL updates but orders/basket bytes freeze (or vice versa).
+**Why:** `/v2/owner/{owner}/ws` sends `{type:"basket"}` (full snapshot, on real on-chain change) and `{type:"metrics"}` (positions-only, every oracle tick). Metrics frames do **not** include orders.
+**Fix:** fold `metrics` into the last `basket` state — `subscribeOwner()` does the merge for you.
+
+## 8. WS connection limits are real
+
+**Symptom:** HTTP **429** on your 6th tab, or odd refresh cadence across tabs.
+**Why:** hardcoded **5 connections per owner** (429) / 10k global (503), and `updateIntervalMs` is shared as the **minimum** across an owner's connections.
+**Fix:** one `subscribeOwner()` per owner per app; share its state. The helper also falls back to 5 s polling on failure.
+
+## 9. Session keys: powerful, with two traps
+
+**Symptom A:** you look for a "create session" endpoint. There isn't one — creation is **client-side** (gpl_session program `Keysp…` via `@magicblock-labs/gum-sdk`; the V2 API only *consumes* `signer` + `sessionToken`).
+**Symptom B:** you typo the signer/token and the API doesn't complain.
+**Why:** open/close/collateral/reverse parse session fields with a silent fallback — a malformed value just signs as the owner (and likely fails on-chain).
+**Fix:** validate your session pubkeys before sending; see `examples/tap-trade` for the full client-side session flow.
+
+## 10. Responses are V1-shaped (including a typo)
+
+**Symptom:** you wait for `swapInPriceUi` to populate, or your codegen "fixes" a field name and parsing breaks.
+**Why:** V2 reuses the V1 response DTOs — `swap*` fields are **always null** on MagicBlock, and `youRecieveUsdUi` is genuinely misspelled in the API.
+**Fix:** our types mark the always-null fields and preserve the typo. Don't rename it.
+
+## 11. Deposits take a MINT, trading takes SYMBOLS
+
+**Symptom:** `deposit-direct` 500s, or deposits the wrong amount for an exotic token.
+**Why:** setup/withdrawal endpoints take a **mint pubkey** (`tokenMint`); every trading endpoint takes a **symbol**. Unknown mints silently assume 6 decimals + legacy SPL token — wrong for Token-2022 assets.
+**Fix:** resolve mints from `client.tokens()` (it also flags `isToken2022`), never hardcode.
+
+## 12. `delegate-basket` wants payer AND owner — and ignores your config
+
+**Symptom:** you pass `commitFrequency`/`validatorKey` and nothing changes.
+**Why:** both are **protocol-fixed server-side** (10 000 ms, validator `MAS1Dt9…`). The request really is just `{payer, owner}` — payer signs/pays, owner's basket gets delegated.
+**Fix:** send only what's used. (The server also patches a known SDK PDA-derivation bug — Anchor error 2006 `ConstraintSeeds` — one more reason to build these txs via the API.)
+
+## 13. Edit semantics are OPPOSITE between triggers and limits
+
+**Symptom:** an edit wipes a field you meant to keep — or keeps one you meant to change.
+**Why:** `edit-trigger-order` requires **both** price and size (no "keep existing"); `edit-limit-order` treats **0/omitted as "keep existing"**. Also: `cancel-trigger-order` with `orderId: 255` cancels **all** triggers for that market.
+**Fix:** read the request type comments in [`types.ts`](./packages/flash-v2/src/types.ts); they encode both behaviors.
+
+## 14. The $11 rule
+
+**Symptom:** position opens fine; placing TP/SL/limit on it fails on-chain.
+**Why:** triggers and limit orders require **> $10 collateral after entry fees**. A "$10 position" drops below the line the moment fees land.
+**Fix:** open with **≥ $11** (we default to it) — `guards.checkCollateralForTriggers()`.
+
+## 15. Reverse takes a 2% haircut
+
+**Symptom:** your reversed position is ~2% smaller than the close proceeds implied.
+**Why:** `reverse-position` applies a fixed **2% haircut** to close proceeds before sizing the opposite side — absorbing quote-vs-execution drift so the atomic flip can't fail on a price move.
+**Fix:** expect it; `newCollateralUsd` in the response is post-haircut.
+
+## 16. `owner` is optional exactly once
+
+**Symptom:** you omit `owner` everywhere because open-position allowed it — closes start failing.
+**Why:** **only** `open-position` treats a missing `owner` as "preview-only, skip the tx" (a free quote API!). Close/collateral/reverse **require** it. Bonus: `inputAmountUi: "0"` on open returns just `availableLiquidity` + borrow rate — a liquidity probe.
+**Fix:** use quote-mode deliberately (see [`hello.ts`](./packages/flash-v2/src/hello.ts)); pass `owner` everywhere else.
+
+---
+
+*Sourced from a line-by-line audit of the V2 backend + live-API verification. Found a 19th? PRs welcome — candor is the brand.*
+
+─────────────────────────────────────────────────────────────
+FILE: AGENTS.md
+─────────────────────────────────────────────────────────────
+# AGENTS.md — instructions for coding agents
+
+You are working in a **TypeScript starter for Flash Trade V2** — perpetual futures on a MagicBlock Ephemeral Rollup, consumed **exclusively through a hosted REST API** (there is no public V2 SDK; do not look for one or add chain-SDK dependencies to the base package).
+
+## Commands
+
+```bash
+bun install                 # workspace install (bun ≥ 1.1; runs TS natively)
+bun run hello               # first success: live price + quote (no wallet)
+bun run lifecycle           # full account walkthrough — DRY RUN by default
+bun run typecheck           # all workspaces (tsc --noEmit)
+bun run tap-trade           # the hero example (Next.js dev server)
+```
+
+There is no test suite yet; **`bun run typecheck` is the gate** — keep it green.
+`lifecycle --submit` sends REAL mainnet transactions and needs `KEYPAIR_PATH`; never run it unless the user explicitly asks.
+
+## Map (where to edit what)
+
+| You want to… | Edit |
+|---|---|
+| call a V2 endpoint | `packages/flash-v2/src/client.ts` (35 REST methods; the WS path lives in `owner-stream.ts`; types in `types.ts`) |
+| sign/submit a built tx | `packages/flash-v2/src/sign.ts` — trading→`network.erRpc`, setup/withdraw→`network.baseRpc` |
+| add a safety check | `packages/flash-v2/src/guards.ts` |
+| consume live positions | `packages/flash-v2/src/owner-stream.ts` (`subscribeOwner`) |
+| change networks | `packages/flash-v2/src/network.ts` + `.env` (`FLASH_V2_BASE_URL`) |
+| build a new example | copy `examples/_template`, depend on `"flash-v2": "workspace:*"` |
+| understand a failure | `GOTCHAS.md` — 18 documented sharp edges with fixes |
+
+Full API reference: `openapi.v2.json` (vendored) · live Swagger at https://flashapi.trade/docs.
+
+## Conventions (match them)
+
+- **bun + TypeScript strict.** ESM, `.ts` import specifiers, `moduleResolution: Bundler`.
+- Every source file opens with a **6-line `// ───` banner**: what it shows · the hard part · GOTCHAS pointer. Keep that pattern in new files.
+- Public client methods carry **TSDoc with `@example`** and name the submit chain (`→ network.erRpc`).
+- All amounts/prices are **UI decimal strings** ("11.5") at the API boundary.
+- The API field `youRecieveUsdUi` is misspelled **on purpose** (matches the backend) — never "fix" it.
+- Errors: throw/propagate `FlashV2Error`; never swallow `err`-in-200 bodies.
+- Examples are self-contained: own README (7 fixed sections — copy tap-trade's), own `.env.example`, `dev`/`build`/`typecheck` scripts, **mainnet defaults that work with zero edits**.
+
+## Domain rules the chain enforces (the API won't warn you)
+
+1. Account order: init-basket → init-deposit-ledger → delegate-basket → deposit → trade → withdraw.
+2. **≥ $11** collateral or TP/SL/limit placement fails after fees.
+3. LONG: limit < mark, TP > mark, SL < mark (SHORT mirrored) — else on-chain error 6057. Use `validateTriggerPrice()`.
+4. Close ≥ 97% of size = FULL close (different instruction) — `isFullClose()`.
+5. Session keys are created **client-side** (gum-sdk / gpl_session `Keysp…`), then passed as `signer` + `sessionToken`.
+
+## Safety rails
+
+- **Mainnet by default.** Never flip defaults to mainnet. Never commit `.env`, keypairs, or RPC tokens.
+- Transactions from the API are **partially signed — never replace the blockhash**.
+- This repo must stay free of secrets; CI greps for them and fails the build.
+
+─────────────────────────────────────────────────────────────
+FILE: SECURITY.md
+─────────────────────────────────────────────────────────────
+# Security
+
+## What this repo is (and isn't)
+
+An **educational starter** for building on Flash Trade V2 (MagicBlock Ephemeral Rollups). It is not a custodial product and not financial advice. Perpetual futures are leveraged instruments — you can lose your collateral, and liquidation distance shrinks as leverage rises.
+
+## The trust model
+
+- The hosted V2 API **builds unsigned transactions**. It never holds keys and cannot move funds — *you* sign and submit. Review what you sign.
+- Everything defaults to **mainnet** (fake money). Mainnet requires deliberately editing `.env`.
+- The tap-trade "demo wallet" is a **throwaway mainnet keypair in browser localStorage** — convenient for demos, never for real funds.
+- Session keys (gpl_session) are scoped to a target program with an expiry; their worst-case blast radius is the session signer's lamport top-up. Create them with `topUp` amounts you can afford to lose, and revoke when done.
+
+## Key handling rules
+
+- `.env` is gitignored; only `.env.example` (no secrets) is committed.
+- Never commit keypairs, RPC API keys, or provider tokens. CI fails the build if a secret pattern lands in the tree.
+- `lifecycle --submit` requires `KEYPAIR_PATH` — point it at a **dedicated throwaway wallet (real funds — keep it small)**.
+
+## Reporting a vulnerability
+
+- **This starter:** open a GitHub security advisory on the repo (Security → Report a vulnerability).
+- **The Flash protocol or V2 API:** contact the Flash Trade team — https://flash.trade (Discord/Telegram linked there). Please do not open public issues for protocol-level reports.
+
+─────────────────────────────────────────────────────────────
+FILE: packages/flash-v2/src/network.ts
+─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// network.ts — pick your network. Mainnet by default; mainnet is one env var.
+// THE HARD PART: V2 spans TWO chains. Trading txs go to the Ephemeral Rollup
+// RPC; setup + withdrawal txs go to the base-chain Solana RPC. Mixing them
+// fails. Every preset here carries BOTH RPCs so you can't lose track.
+// GOTCHAS.md → "Two-chain mental model"
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Everything the client needs to talk to one Flash V2 deployment. */
+export interface NetworkConfig {
+  /** Human label, e.g. "mainnet". */
+  name: "mainnet" | "mainnet";
+  /** Hosted Flash V2 REST base, INCLUDING the /v2 suffix. */
+  apiBase: string;
+  /** Ephemeral Rollup RPC — submit TRADING txs here (open/close/triggers/…). */
+  erRpc: string;
+  /** Base-chain Solana RPC — submit SETUP + WITHDRAWAL txs here. */
+  baseRpc: string;
+}
+
+/**
+ * Mainnet — the default playground. Fake money, real speed.
+ * @example
+ * const client = new FlashV2Client(); // uses MAINNET automatically
+ */
+export const MAINNET: NetworkConfig = {
+  name: "mainnet",
+  apiBase: "https://flashapi.trade/v2",
+  erRpc: "https://flash.magicblock.xyz",
+  baseRpc: "https://api.mainnet-beta.solana.com",
+};
+
+/**
+ * Mainnet — real funds. Note: the V2 pool config on mainnet is still the
+ * "dev" manifest with one active pool (staging). Mainnet is the full playground.
+ */
+export const MAINNET: NetworkConfig = {
+  name: "mainnet",
+  apiBase: "https://flashapi.trade/v2",
+  erRpc: "https://flash.magicblock.xyz",
+  baseRpc: "https://api.mainnet-beta.solana.com",
+};
+
+/**
+ * Resolve the active network: explicit arg > env vars > MAINNET default.
+ * Env: FLASH_V2_BASE_URL, ER_RPC_URL, BASE_RPC_URL (see .env.example).
+ */
+export function resolveNetwork(name?: "mainnet" | "mainnet"): NetworkConfig {
+  const preset = name === "mainnet" ? MAINNET : MAINNET;
+  const env = typeof process !== "undefined" ? process.env : ({} as Record<string, string | undefined>);
+  return {
+    ...preset,
+    apiBase: env.FLASH_V2_BASE_URL?.replace(/\/$/, "") ?? preset.apiBase,
+    erRpc: env.ER_RPC_URL ?? preset.erRpc,
+    baseRpc: env.BASE_RPC_URL ?? preset.baseRpc,
+  };
+}
+
+─────────────────────────────────────────────────────────────
+FILE: packages/flash-v2/src/errors.ts
+─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// errors.ts — ONE error type for the API's THREE error channels.
+// THE HARD PART: trading endpoints return HTTP 200 with an `err` field in the
+// body; trigger/limit endpoints return HTTP 400 with a plain-text body; setup/
+// withdrawal endpoints return a bare HTTP 500 with an EMPTY body. This module
+// normalizes all three so your code handles exactly one shape.
+// GOTCHAS.md → "Three error channels"
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Which of the API's three error styles produced this error. */
+export type ErrorChannel =
+  | "body-err"   // HTTP 200, but the JSON body carried `err: "..."` (trading/previews)
+  | "http-400"   // HTTP 400 with a plain-text reason (trigger/limit validation)
+  | "http-500"   // HTTP 500 with an empty body (setup/withdrawal — reason is server-side only)
+  | "http-other" // anything else (404 raw lookups, 429/503 WS limits, network failures)
+  ;
+
+/** Normalized Flash V2 API error. `channel` tells you which style the API used. */
+export class FlashV2Error extends Error {
+  readonly channel: ErrorChannel;
+  readonly status: number | undefined;
+  readonly endpoint: string;
+
+  constructor(opts: { channel: ErrorChannel; endpoint: string; message: string; status?: number }) {
+    super(`[${opts.channel}] ${opts.endpoint}: ${opts.message}`);
+    this.name = "FlashV2Error";
+    this.channel = opts.channel;
+    this.endpoint = opts.endpoint;
+    this.status = opts.status;
+  }
+}
+
+/**
+ * Throw if a 200-OK trading/preview response actually failed.
+ * The single most-missed check on this API: `err` arrives with HTTP 200.
+ * @example
+ * const quote = await client.openPosition(req); // client calls assertNoErr for you
+ */
+export function assertNoErr<T extends { err?: string | null }>(endpoint: string, body: T): T {
+  if (body.err) {
+    throw new FlashV2Error({ channel: "body-err", endpoint, message: body.err, status: 200 });
+  }
+  return body;
+}
+
+─────────────────────────────────────────────────────────────
+FILE: packages/flash-v2/src/types.ts
+─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// types.ts — hand-written types for the V2 API, faithful to the live backend.
+// THE HARD PART: V2 reuses V1-shaped response DTOs — some fields are ALWAYS
+// null on MagicBlock (swap*), and one is misspelled on purpose (youRecieveUsdUi
+// matches the API byte-for-byte; do not "fix" it). All amounts/prices are UI
+// DECIMAL STRINGS (e.g. "11.5") unless a field name says otherwise.
+// GOTCHAS.md → "V1-shaped responses" · openapi.v2.json is the full reference.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Position direction. (The API also knows "SWAP" — V2 rejects it.) */
+export type TradeType = "LONG" | "SHORT";
+/** MARKET executes at oracle price now; LIMIT rests until `limitPrice`. */
+export type OrderType = "MARKET" | "LIMIT";
+/** Collateral adjustment direction for preview/margin. */
+export type MarginAction = "ADD" | "REMOVE";
+
+// ── Requests: trading (ER chain) ─────────────────────────────────────────────
+
+/**
+ * Open (or increase) a position — MARKET, or LIMIT with optional bundled TP/SL.
+ * Omit `owner` → preview-only (quote, no transactionBase64). Include it → tx too.
+ * `signer`+`sessionToken` switch fee-payer/signing to a session key (see GOTCHAS).
+ */
+export interface OpenPositionRequest {
+  inputTokenSymbol: string;          // collateral, e.g. "USDC"
+  outputTokenSymbol: string;         // market, e.g. "SOL"
+  inputAmountUi: string;             // collateral amount (UI units)
+  leverage: number;                  // 5.0 = 5x
+  tradeType: TradeType;
+  orderType?: OrderType;             // default MARKET
+  limitPrice?: string;               // REQUIRED when orderType=LIMIT
+  takeProfit?: string;               // optional bundled TP trigger price
+  stopLoss?: string;                 // optional bundled SL trigger price
+  owner?: string;                    // omit = preview-only
+  slippagePercentage?: string;       // default "0.5"
+  signer?: string;                   // session signer pubkey (optional)
+  sessionToken?: string;             // session token account (optional)
+}
+
+/** Close fully or partially. ≥97% of size (or 0) = FULL close on-chain. */
+export interface ClosePositionRequest {
+  marketSymbol: string;
+  side: TradeType;
+  inputUsdUi: string;                // USD notional to close ("0" = full)
+  withdrawTokenSymbol: string;       // settlement token, e.g. "USDC"
+  owner: string;                     // REQUIRED (unlike open)
+  slippagePercentage?: string;
+  signer?: string;
+  sessionToken?: string;
+}
+
+/** Flip LONG↔SHORT atomically. Proceeds take a 2% haircut before reopening. */
+export interface ReversePositionRequest {
+  marketSymbol: string;
+  side: TradeType;                   // CURRENT side; new position is opposite
+  leverage: number;                  // leverage for the NEW side
+  owner: string;
+  slippagePercentage?: string;
+  signer?: string;
+  sessionToken?: string;
+}
+
+export interface AddCollateralRequest {
+  marketSymbol: string;
+  side: TradeType;
+  depositAmountUi: string;           // in deposit token units
+  depositTokenSymbol: string;
+  owner: string;
+  slippagePercentage?: string;
+  signer?: string;
+  sessionToken?: string;
+}
+
+export interface RemoveCollateralRequest {
+  marketSymbol: string;
+  side: TradeType;
+  withdrawAmountUsdUi: string;       // USD; must be > 0 and < current collateral
+  withdrawTokenSymbol: string;
+  owner: string;
+  slippagePercentage?: string;
+  signer?: string;
+  sessionToken?: string;
+}
+
+/** Place ONE trigger order (TP or SL) on an existing position. Slots 0–4. */
+export interface PlaceTriggerOrderRequest {
+  marketSymbol: string;
+  side: TradeType;
+  triggerPriceUi: string;
+  sizeAmountUi: string;              // TARGET-token size to close when it fires
+  isStopLoss: boolean;
+  owner: string;
+  signer?: string;
+  sessionToken?: string;
+}
+
+/** Place TP and/or SL in one atomic tx. At least one of the two is required. */
+export interface PlaceTpSlRequest {
+  marketSymbol: string;
+  side: TradeType;
+  takeProfitUi?: string;
+  stopLossUi?: string;
+  sizeAmountUi: string;
+  owner: string;
+  signer?: string;
+  sessionToken?: string;
+}
+
+/** Edit a trigger slot. BOTH price and size are required (no "keep existing"). */
+export interface EditTriggerOrderRequest {
+  marketSymbol: string;
+  side: TradeType;
+  orderId: number;                   // slot 0–4
+  isStopLoss: boolean;
+  triggerPriceUi: string;
+  sizeAmountUi: string;
+  owner: string;
+  signer?: string;
+  sessionToken?: string;
+}
+
+/** Cancel one trigger slot — or pass orderId 255 to cancel ALL for the market. */
+export interface CancelTriggerOrderRequest {
+  marketSymbol: string;
+  side: TradeType;
+  orderId: number;                   // 0–4, or 255 = cancel all
+  isStopLoss: boolean;
+  owner: string;
+  signer?: string;
+  sessionToken?: string;
+}
+
+/** Cancel a resting limit order (slot 0–4). Frees its reserved collateral. */
+export interface CancelLimitOrderRequest {
+  marketSymbol: string;
+  side: TradeType;
+  orderId: number;
+  owner: string;
+  signer?: string;
+  sessionToken?: string;
+}
+
+/** Edit a limit order. Here 0/omitted per field means KEEP EXISTING (opposite
+ *  semantics to edit-trigger — see GOTCHAS.md). */
+export interface EditLimitOrderRequest {
+  marketSymbol: string;
+  side: TradeType;
+  orderId: number;
+  limitPriceUi?: string;
+  sizeAmountUi?: string;
+  takeProfitUi?: string;
+  stopLossUi?: string;
+  owner: string;
+  signer?: string;
+  sessionToken?: string;
+}
+
+// ── Requests: account setup + withdrawal (BASE chain) ────────────────────────
+
+/** One-time: create the owner's Basket PDA (holds ALL positions + orders). */
+export interface InitBasketRequest { owner: string }
+/** One-time: create the owner's deposit ledger (collateral inbox). */
+export interface InitDepositLedgerRequest { owner: string }
+
+/** Hand the basket to the MagicBlock validator so it can run on the ER.
+ *  commitFrequency/validator are protocol-fixed server-side — not configurable. */
+export interface DelegateBasketRequest {
+  payer: string;                     // pays fees + signs
+  owner: string;                     // whose basket gets delegated
+}
+
+/** Move tokens into the platform vault. NOTE: takes a MINT pubkey, not a symbol. */
+export interface DepositDirectRequest {
+  owner: string;
+  tokenMint: string;                 // mint address (get it from client.tokens())
+  amount: string;                    // UI units
+}
+
+export interface RequestWithdrawalRequest {
+  owner: string;
+  tokenMint: string;
+  amount: string;
+  includeCustodySettlement?: boolean; // default true
+}
+
+export interface ExecuteWithdrawalRequest {
+  owner: string;
+  tokenMint: string;
+  includeCustodySettlement?: boolean; // default true
+}
+
+// ── Requests: previews (read-only math, no tx) ───────────────────────────────
+
+export interface PreviewLimitOrderFeesRequest {
+  marketSymbol: string;
+  inputAmountUi: string;             // collateral
+  outputAmountUi: string;            // size
+  side: TradeType;
+  limitPrice?: string;               // omit = quote at live price
+}
+
+export interface PreviewExitFeeRequest {
+  marketSymbol: string;
+  side: TradeType;
+  closeAmountUsdUi: string;
+  owner: string;                     // reads your live position
+}
+
+/** forward: trigger price → PnL. reverse_pnl / reverse_roi: target → trigger price. */
+export interface PreviewTpSlRequest {
+  mode: "forward" | "reverse_pnl" | "reverse_roi";
+  marketSymbol: string;
+  side: TradeType;
+  owner?: string;                    // present = use live position; absent = inline:
+  entryPriceUi?: string;
+  sizeUsdUi?: string;
+  collateralUsdUi?: string;
+  triggerPriceUi?: string;           // forward
+  targetPnlUsdUi?: string;           // reverse_pnl
+  targetRoiPercent?: number;         // reverse_roi
+}
+
+export interface PreviewMarginRequest {
+  marketSymbol: string;
+  side: TradeType;
+  marginDeltaUsdUi: string;
+  action: MarginAction;
+  owner: string;
+}
+
+// ── Responses ────────────────────────────────────────────────────────────────
+
+/** TP/SL quote embedded in open-position responses. */
+export interface TriggerQuote {
+  exitPriceUi: string;
+  profitUsdUi: string;
+  lossUsdUi: string;
+  exitFeeUsdUi: string;
+  receiveUsdUi: string;
+  pnlPercentage: string;
+}
+
+/**
+ * open-position returns a full quote alongside the (optional) transaction.
+ * `old*` fields appear only when increasing an existing position (blended).
+ * `swap*` fields are ALWAYS null on V2 (no swaps on the ER).
+ */
+export interface OpenPositionResponse {
+  oldLeverage?: string | null;
+  newLeverage: string;
+  oldEntryPrice?: string | null;
+  newEntryPrice: string;
+  oldLiquidationPrice?: string | null;
+  newLiquidationPrice: string;
+  entryFee: string;
+  entryFeeBeforeDiscount: string;
+  openPositionFeePercent: string;
+  availableLiquidity: string;
+  youPayUsdUi: string;
+  /** API field is genuinely misspelled — matches the backend, do not rename. */
+  youRecieveUsdUi: string;
+  marginFeePercentage: string;       // HOURLY borrow rate (Flash charges borrow, not funding)
+  outputAmount: string;              // native units
+  outputAmountUi: string;
+  transactionBase64?: string | null; // present only when `owner` was provided
+  swapInPriceUi?: string | null;     // always null on V2
+  swapOutPriceUi?: string | null;    // always null on V2
+  swapFeeUsdUi?: string | null;      // always null on V2
+  takeProfitQuote?: TriggerQuote | null;
+  stopLossQuote?: TriggerQuote | null;
+  err?: string | null;
+}
+
+export interface ClosePositionResponse {
+  receiveTokenSymbol: string;
+  receiveTokenAmountUi: string;
+  receiveTokenAmountUsdUi: string;
+  markPrice: string;
+  entryPrice: string;
+  existingLiquidationPrice: string;
+  newLiquidationPrice: string;       // "0" on a full close
+  existingSize: string;
+  newSize: string;
+  existingCollateral: string;
+  newCollateral: string;
+  existingLeverage: string;
+  newLeverage: string;
+  settledPnl: string;                // signed ("-" prefix on losses)
+  fees: string;
+  feesBeforeDiscount: string;
+  lockAndUnsettledFeeUsd?: string | null; // present only on PARTIAL closes
+  transactionBase64?: string | null;
+  err?: string | null;
+}
+
+export interface AddCollateralResponse {
+  existingCollateralUsd: string;
+  newCollateralUsd: string;
+  existingLeverage: string;
+  newLeverage: string;
+  existingLiquidationPrice: string;
+  newLiquidationPrice: string;
+  depositUsdValue: string;
+  maxAddableUsd: string;
+  transactionBase64?: string | null;
+  err?: string | null;
+}
+
+export interface RemoveCollateralResponse {
+  existingCollateralUsd: string;
+  newCollateralUsd: string;
+  existingLeverage: string;
+  newLeverage: string;
+  existingLiquidationPrice: string;
+  newLiquidationPrice: string;
+  receiveAmountUi: string;
+  receiveAmountUsdUi: string;
+  maxWithdrawableUsd: string;
+  transactionBase64?: string | null;
+  err?: string | null;
+}
+
+export interface ReversePositionResponse {
+  closeReceiveUsd: string;
+  closeFees: string;
+  closeSettledPnl: string;
+  newSide: string;                   // "Long" | "Short"
+  newLeverage: string;
+  newEntryPrice: string;
+  newLiquidationPrice: string;
+  newSizeUsd: string;
+  newSizeAmountUi: string;
+  newCollateralUsd: string;          // AFTER the 2% haircut
+  openEntryFee: string;
+  transactionBase64?: string | null;
+  err?: string | null;
+}
+
+/** Trigger + limit management endpoints return just the unsigned tx. */
+export interface TxOnlyResponse {
+  transactionBase64: string;
+}
+
+export interface PreviewLimitOrderFeesResponse {
+  entryPriceUi: string;
+  entryFeeUsdUi: string;
+  liquidationPriceUi: string;
+  borrowRateUi: string;
+  err?: string | null;
+}
+
+export interface PreviewExitFeeResponse {
+  exitFeeUsdUi: string;
+  exitFeeAmountUi: string;
+  exitPriceUi: string;
+  err?: string | null;
+}
+
+export interface PreviewTpSlResponse {
+  pnlUsdUi?: string | null;          // forward mode
+  pnlPercentage?: string | null;     // forward mode
+  triggerPriceUi?: string | null;    // reverse modes
+  err?: string | null;
+}
+
+export interface PreviewMarginResponse {
+  newLeverageUi: string;
+  newLiquidationPriceUi: string;
+  maxAmountUsdUi: string;
+  existingCollateralUsdUi?: string | null;
+  newCollateralUsdUi?: string | null;
+  existingLeverageUi?: string | null;
+  existingLiquidationPriceUi?: string | null;
+  deltaUsdUi?: string | null;
+  err?: string | null;
+}
+
+// ── Reads: owner snapshot, prices, tokens, health ────────────────────────────
+
+export interface OraclePriceRaw {
+  price: string;
+  exponent: number;
+  confidence: string;                // always "0" on V2 (Pyth Lazer spot)
+  timestamp: string;
+}
+
+/** Live, enriched metrics for one position (keyed by market pubkey). */
+export interface PositionMetrics {
+  marketSymbol: string;
+  collateralSymbol: string;
+  sideUi: string;                    // "Long" | "Short"
+  entryPriceUi: string;
+  sizeAmountUi: string;
+  sizeAmountUiKmb?: string | null;
+  sizeUsdUi: string;
+  collateralAmountUi: string;
+  collateralAmountUiKmb?: string | null;
+  collateralUsdUi: string;
+  pnlWithFeeUsdUi: string;           // signed
+  pnlPercentageWithFee: string;      // signed
+  pnlWithoutFeeUsdUi: string;
+  pnlPercentageWithoutFee: string;
+  liquidationPriceUi: string;
+  leverageUi: string;                // may be the string "Infinity"
+  profitUsd: string;
+  lossUsd: string;
+  exitFeeUsd: string;
+  borrowFeeUsd: string;
+  totalFeeUsd: string;
+  leverage: string;                  // raw BPS (u128 string)
+  marginUsd: string;
+  liquidationPrice: OraclePriceRaw;
+  exitPrice: OraclePriceRaw;
+}
+
+export interface TriggerOrderMetrics {
+  orderId: number;
+  type: "TP" | "SL";
+  triggerPriceUi: string;
+  sizeAmountUi: string;
+  sizeUsdUi?: string | null;
+}
+
+export interface LimitOrderMetrics {
+  orderId: number;
+  limitPriceUi: string;
+  sizeAmountUi: string;
+  sizeUsdUi?: string | null;
+  takeProfitUi?: string | null;
+  stopLossUi?: string | null;
+  reserveAmountUi?: string | null;
+}
+
+export interface OrderMetrics {
+  marketSymbol: string;
+  sideUi: string;
+  limitOrders: LimitOrderMetrics[];
+  takeProfitOrders: TriggerOrderMetrics[];
+  stopLossOrders: TriggerOrderMetrics[];
+}
+
+/**
+ * Everything about one owner, in one shot — the V2 read model.
+ * `basketData` is the raw account (base64); positions/orders are pre-enriched
+ * for you in positionMetrics/orderMetrics (keyed by MARKET PUBKEY).
+ */
+export interface BasketSnapshot {
+  owner: string;
+  basketPubkey?: string | null;
+  basketData?: string | null;
+  positionMetrics: Record<string, PositionMetrics>;
+  orderMetrics: Record<string, OrderMetrics>;
+}
+
+/** Live WS frames from /v2/owner/{owner}/ws — see subscribeOwner(). */
+export type OwnerWsMessage =
+  | { type: "basket"; data: BasketSnapshot }
+  | { type: "metrics"; data: Record<string, PositionMetrics> };
+
+export interface TokenInfo {
+  symbol: string;
+  mintKey: string;
+  decimals: number;
+  isStable: boolean;
+  isVirtual: boolean;
+  lazerId?: number | null;
+  pythTicker?: string | null;
+  isToken2022: boolean;
+}
+
+export interface PriceInfo {
+  price: number;
+  exponent: number;
+  confidence: number;
+  priceUi: number;
+  timestampUs: number;
+  marketSession: string;             // "regular" | "preMarket" | "postMarket" | "overNight" | "closed"
+}
+
+export interface HealthResponse {
+  status: string;
+  program: string;                   // "magicblock"
+  accounts: Record<string, number>;  // pools/custodies/markets/baskets/deposit_ledgers
+  config: {
+    source: string;                  // "cdn" | "bundled"
+    env: string;                     // "dev" | "prod" (independent of cluster!)
+    version?: string | null;
+    branch?: string | null;
+    publishedAt?: string | null;
+    loadedAtUnix?: number | null;
+    pools?: number;
+    markets?: number;
+    tokens?: number;
+  };
+}
+
+/** Raw Anchor-decoded account wrapper for the /v2/raw/* endpoints. */
+export interface RawAccount<T = unknown> {
+  pubkey: string;
+  account: T;
+}
+
+─────────────────────────────────────────────────────────────
+FILE: packages/flash-v2/src/client.ts
+─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// client.ts — the entire Flash V2 REST surface, typed and thin (35 REST
+// methods here; the 36th API path is the owner WebSocket → owner-stream.ts).
+// THE HARD PART: this API has three different error styles. Every call below
+// funnels through one request() that normalizes them into FlashV2Error, and
+// `err`-in-a-200 is thrown for you. Transactions come back PARTIALLY SIGNED
+// (base64) — the server pre-filled its signer slots and chose the blockhash;
+// you add ONLY your signature (sign.ts) and submit to the chain noted per method.
+// GOTCHAS.md → "Three error channels" · "Two-chain mental model"
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { resolveNetwork, type NetworkConfig } from "./network.ts";
+import { FlashV2Error, assertNoErr } from "./errors.ts";
+import type {
+  AddCollateralRequest, AddCollateralResponse,
+  BasketSnapshot,
+  CancelLimitOrderRequest, CancelTriggerOrderRequest,
+  ClosePositionRequest, ClosePositionResponse,
+  DelegateBasketRequest, DepositDirectRequest,
+  EditLimitOrderRequest, EditTriggerOrderRequest,
+  ExecuteWithdrawalRequest,
+  HealthResponse,
+  InitBasketRequest, InitDepositLedgerRequest,
+  OpenPositionRequest, OpenPositionResponse,
+  PlaceTpSlRequest, PlaceTriggerOrderRequest,
+  PreviewExitFeeRequest, PreviewExitFeeResponse,
+  PreviewLimitOrderFeesRequest, PreviewLimitOrderFeesResponse,
+  PreviewMarginRequest, PreviewMarginResponse,
+  PreviewTpSlRequest, PreviewTpSlResponse,
+  PriceInfo,
+  RawAccount,
+  RemoveCollateralRequest, RemoveCollateralResponse,
+  RequestWithdrawalRequest,
+  ReversePositionRequest, ReversePositionResponse,
+  TokenInfo,
+  TxOnlyResponse,
+} from "./types.ts";
+
+/** `{ transactionBase64 }` returned by the setup/withdrawal builders. */
+export interface BuiltTransaction { transactionBase64: string }
+
+/**
+ * Typed client for the hosted Flash V2 (MagicBlock) API.
+ *
+ * @example Read a price on mainnet — no wallet, no auth:
+ * ```ts
+ * const flash = new FlashV2Client();              // mainnet by default
+ * const sol = await flash.price("SOL");
+ * console.log(sol.priceUi);                       // 65.09...
+ * ```
+ *
+ * @example Quote a trade (no owner = preview-only, no tx is built):
+ * ```ts
+ * const quote = await flash.openPosition({
+ *   inputTokenSymbol: "USDC", outputTokenSymbol: "SOL",
+ *   inputAmountUi: "11", leverage: 5, tradeType: "LONG",
+ * });
+ * console.log(quote.newEntryPrice, quote.entryFee, quote.newLiquidationPrice);
+ * ```
+ */
+export class FlashV2Client {
+  readonly network: NetworkConfig;
+
+  constructor(config?: "mainnet" | "mainnet" | Partial<NetworkConfig>) {
+    if (config === undefined || config === "mainnet" || config === "mainnet") {
+      this.network = resolveNetwork(config);
+    } else {
+      this.network = { ...resolveNetwork(config.name), ...config };
+    }
+  }
+
+  // ── plumbing ───────────────────────────────────────────────────────────────
+
+  private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+    const url = `${this.network.apiBase}${path}`;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    } catch (e) {
+      throw new FlashV2Error({ channel: "http-other", endpoint: path, message: `network failure: ${(e as Error).message}` });
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      if (res.status === 400) {
+        // Trigger/limit validation errors arrive as HTTP 400 with a plain-text reason.
+        throw new FlashV2Error({ channel: "http-400", endpoint: path, message: text || "bad request", status: 400 });
+      }
+      if (res.status === 500) {
+        // Setup/withdrawal failures arrive as a bare 500 with an EMPTY body —
+        // the reason only exists in server logs. Check your inputs (mint vs
+        // symbol, pool match, ordering) and see GOTCHAS.md.
+        throw new FlashV2Error({
+          channel: "http-500", endpoint: path, status: 500,
+          message: text || "empty 500 — server logs only; verify inputs (tokenMint? lifecycle order?)",
+        });
+      }
+      throw new FlashV2Error({ channel: "http-other", endpoint: path, message: text || res.statusText, status: res.status });
+    }
+
+    const json = (await res.json()) as T;
+    // Trading + preview endpoints report failure as `err` inside a 200 body.
+    return assertNoErr(path, json as T & { err?: string | null });
+  }
+
+  // ── reads ──────────────────────────────────────────────────────────────────
+
+  /** Service health + live pool-config provenance (env/version/source). */
+  health(): Promise<HealthResponse> { return this.request("GET", "/health"); }
+
+  /** Token metadata for the active pool — symbols, MINTS (for deposits), decimals. */
+  tokens(): Promise<TokenInfo[]> { return this.request("GET", "/tokens"); }
+
+  /** All live oracle prices for the active pool, keyed by symbol. */
+  prices(): Promise<Record<string, PriceInfo>> { return this.request("GET", "/prices"); }
+
+  /** One symbol's live price (case-insensitive). 404 if not in the active pool. */
+  price(symbol: string): Promise<PriceInfo> { return this.request("GET", `/prices/${encodeURIComponent(symbol)}`); }
+
+  /** Aggregated pool stats (TVL, utilization, LP price). Cached ~5s server-side. */
+  poolData(): Promise<unknown> { return this.request("GET", "/pool-data"); }
+
+  /** Pool stats for one pool pubkey. */
+  poolDataByPool(poolPubkey: string): Promise<unknown> { return this.request("GET", `/pool-data/${poolPubkey}`); }
+
+  /**
+   * THE read model: everything about one owner in one call — basket PDA, raw
+   * basket bytes, and pre-enriched position/order metrics (PnL, leverage, liq).
+   * For live updates use {@link subscribeOwner} (WebSocket) instead of polling.
+   */
+  owner(owner: string): Promise<BasketSnapshot> { return this.request("GET", `/owner/${owner}`); }
+
+  /** Raw Anchor-decoded accounts (debugging / deep dives). */
+  rawPools(): Promise<RawAccount[]> { return this.request("GET", "/raw/pools"); }
+  rawPool(pubkey: string): Promise<RawAccount> { return this.request("GET", `/raw/pools/${pubkey}`); }
+  rawCustodies(): Promise<RawAccount[]> { return this.request("GET", "/raw/custodies"); }
+  rawCustody(pubkey: string): Promise<RawAccount> { return this.request("GET", `/raw/custodies/${pubkey}`); }
+  rawMarkets(): Promise<RawAccount[]> { return this.request("GET", "/raw/markets"); }
+  rawMarket(pubkey: string): Promise<RawAccount> { return this.request("GET", `/raw/markets/${pubkey}`); }
+  /** NOTE: takes the BASKET PDA (from owner().basketPubkey), not the owner. */
+  rawBasket(basketPubkey: string): Promise<RawAccount> { return this.request("GET", `/raw/baskets/${basketPubkey}`); }
+
+  // ── account setup (sign + submit to the BASE chain) ──────────────────────────
+
+  /** Step 1 (one-time): create your Basket PDA. → submit to network.baseRpc */
+  initBasket(req: InitBasketRequest): Promise<BuiltTransaction> {
+    return this.request("POST", "/transaction-builder/init-basket", req);
+  }
+  /** Step 2 (one-time): create your deposit ledger. → submit to network.baseRpc */
+  initDepositLedger(req: InitDepositLedgerRequest): Promise<BuiltTransaction> {
+    return this.request("POST", "/transaction-builder/init-deposit-ledger", req);
+  }
+  /** Step 3 (one-time): delegate the basket to the MagicBlock validator.
+   *  → submit to network.baseRpc */
+  delegateBasket(req: DelegateBasketRequest): Promise<BuiltTransaction> {
+    return this.request("POST", "/transaction-builder/delegate-basket", req);
+  }
+  /** Step 4: fund your ledger. NOTE: tokenMint is a MINT ADDRESS (see tokens()).
+   *  → submit to network.baseRpc */
+  depositDirect(req: DepositDirectRequest): Promise<BuiltTransaction> {
+    return this.request("POST", "/transaction-builder/deposit-direct", req);
+  }
+
+  // ── trading (sign + submit to the ER: network.erRpc) ─────────────────────────
+
+  /**
+   * Open/increase a position (MARKET or LIMIT, optional bundled TP/SL).
+   * Omit `owner` for a pure quote. Response includes the full preview
+   * (entry, fees, liquidation, hourly borrow %) alongside transactionBase64.
+   * ⚠ The API does NOT validate limit/TP/SL prices against the oracle —
+   * validate client-side with guards.validateTriggerPrice or the tx fails
+   * on-chain with InvalidLimitPrice (6057). → submit to network.erRpc
+   */
+  openPosition(req: OpenPositionRequest): Promise<OpenPositionResponse> {
+    return this.request("POST", "/transaction-builder/open-position", req);
+  }
+
+  /** Close. ⚠ inputUsdUi ≥ 97% of position size = FULL close on-chain
+   *  (different instruction; guards.isFullClose tells you which you'll get).
+   *  → submit to network.erRpc */
+  closePosition(req: ClosePositionRequest): Promise<ClosePositionResponse> {
+    return this.request("POST", "/transaction-builder/close-position", req);
+  }
+
+  /** Flip LONG↔SHORT atomically (2% haircut on proceeds). → network.erRpc */
+  reversePosition(req: ReversePositionRequest): Promise<ReversePositionResponse> {
+    return this.request("POST", "/transaction-builder/reverse-position", req);
+  }
+
+  /** Add margin (lowers leverage + liq risk). → network.erRpc */
+  addCollateral(req: AddCollateralRequest): Promise<AddCollateralResponse> {
+    return this.request("POST", "/transaction-builder/add-collateral", req);
+  }
+
+  /** Remove margin (raises leverage; bounded by maxWithdrawableUsd). → network.erRpc */
+  removeCollateral(req: RemoveCollateralRequest): Promise<RemoveCollateralResponse> {
+    return this.request("POST", "/transaction-builder/remove-collateral", req);
+  }
+
+  /** Place one TP or SL (slots 0–4, max 5 per side). → network.erRpc */
+  placeTriggerOrder(req: PlaceTriggerOrderRequest): Promise<TxOnlyResponse> {
+    return this.request("POST", "/transaction-builder/place-trigger-order", req);
+  }
+
+  /** Place TP and/or SL atomically (≥1 required). → network.erRpc */
+  placeTpSl(req: PlaceTpSlRequest): Promise<TxOnlyResponse> {
+    return this.request("POST", "/transaction-builder/place-tp-sl", req);
+  }
+
+  /** Edit a trigger slot — BOTH price and size required. → network.erRpc */
+  editTriggerOrder(req: EditTriggerOrderRequest): Promise<TxOnlyResponse> {
+    return this.request("POST", "/transaction-builder/edit-trigger-order", req);
+  }
+
+  /** Cancel one trigger (orderId 0–4) or ALL for the market (orderId 255). → network.erRpc */
+  cancelTriggerOrder(req: CancelTriggerOrderRequest): Promise<TxOnlyResponse> {
+    return this.request("POST", "/transaction-builder/cancel-trigger-order", req);
+  }
+
+  /** Cancel a resting limit order; returns its reserved collateral. → network.erRpc */
+  cancelLimitOrder(req: CancelLimitOrderRequest): Promise<TxOnlyResponse> {
+    return this.request("POST", "/transaction-builder/cancel-limit-order", req);
+  }
+
+  /** Edit a limit order — here 0/omitted means KEEP existing (see GOTCHAS). → network.erRpc */
+  editLimitOrder(req: EditLimitOrderRequest): Promise<TxOnlyResponse> {
+    return this.request("POST", "/transaction-builder/edit-limit-order", req);
+  }
+
+  // ── withdrawal (sign + submit to the BASE chain) ─────────────────────────────
+
+  /** Start the exit: escrow + schedule settlement. → network.baseRpc */
+  requestWithdrawal(req: RequestWithdrawalRequest): Promise<BuiltTransaction> {
+    return this.request("POST", "/transaction-builder/request-withdrawal", req);
+  }
+  /** Finish (or recover) the exit to your wallet. → network.baseRpc */
+  executeWithdrawal(req: ExecuteWithdrawalRequest): Promise<BuiltTransaction> {
+    return this.request("POST", "/transaction-builder/execute-withdrawal", req);
+  }
+
+  // ── previews (read-only math; no transaction) ───────────────────────────────
+
+  /** Entry price/fee, liquidation, hourly borrow for a prospective limit order. */
+  previewLimitOrderFees(req: PreviewLimitOrderFeesRequest): Promise<PreviewLimitOrderFeesResponse> {
+    return this.request("POST", "/preview/limit-order-fees", req);
+  }
+  /** Exit fee + exit price for closing part of YOUR live position. */
+  previewExitFee(req: PreviewExitFeeRequest): Promise<PreviewExitFeeResponse> {
+    return this.request("POST", "/preview/exit-fee", req);
+  }
+  /** TP/SL math: price→PnL (forward) or target→price (reverse modes). */
+  previewTpSl(req: PreviewTpSlRequest): Promise<PreviewTpSlResponse> {
+    return this.request("POST", "/preview/tp-sl", req);
+  }
+  /** Effect of adding/removing margin on leverage + liquidation. */
+  previewMargin(req: PreviewMarginRequest): Promise<PreviewMarginResponse> {
+    return this.request("POST", "/preview/margin", req);
+  }
+}
+
+─────────────────────────────────────────────────────────────
+FILE: packages/flash-v2/src/sign.ts
+─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// sign.ts — sign the API's PARTIALLY-SIGNED transactions and submit them.
+// THE HARD PART: the backend already signed any ephemeral signers and chose
+// the blockhash for the RIGHT chain (ER for trades, base for setup/withdraw).
+// You only fill the owner/payer slot. NEVER replace the blockhash — it would
+// invalidate the server's signatures. And submit to the chain the builder
+// targeted: trading → network.erRpc, setup/withdrawal → network.baseRpc.
+// GOTCHAS.md → "Partially-signed txs" · "Two-chain mental model"
+// ─────────────────────────────────────────────────────────────────────────────
+
+import {
+  Connection,
+  Keypair,
+  VersionedTransaction,
+} from "@solana/web3.js";
+
+/** Anything that can sign a VersionedTransaction (wallet-adapter compatible). */
+export interface TransactionSigner {
+  signTransaction(tx: VersionedTransaction): Promise<VersionedTransaction>;
+}
+
+/** Decode the API's base64 into a VersionedTransaction (signatures intact). */
+export function decodeTransaction(transactionBase64: string): VersionedTransaction {
+  const raw = typeof Buffer !== "undefined"
+    ? Buffer.from(transactionBase64, "base64")
+    : Uint8Array.from(atob(transactionBase64), (c) => c.charCodeAt(0));
+  return VersionedTransaction.deserialize(raw);
+}
+
+/**
+ * Sign with a local Keypair — fills ONLY this key's signature slot; the
+ * server's pre-filled signatures are preserved. (Demo wallets, bots, scripts.)
+ */
+export function signWithKeypair(transactionBase64: string, keypair: Keypair): VersionedTransaction {
+  const tx = decodeTransaction(transactionBase64);
+  tx.sign([keypair]); // web3.js writes only the matching signer slot
+  return tx;
+}
+
+/** Sign with a wallet-adapter style signer (browser wallets). */
+export async function signWithWallet(
+  transactionBase64: string,
+  signer: TransactionSigner,
+): Promise<VersionedTransaction> {
+  return signer.signTransaction(decodeTransaction(transactionBase64));
+}
+
+export interface SendResult {
+  signature: string;
+  /** Wall-clock milliseconds from submit to confirmed — the latency-HUD number. */
+  confirmMs: number;
+}
+
+/**
+ * Submit a signed tx and wait for confirmation by polling signature status.
+ * Pass the RIGHT rpc: `network.erRpc` for trades, `network.baseRpc` for
+ * setup/withdrawal. (We poll instead of confirmTransaction so the same code
+ * path works against both the ER and the base chain.)
+ *
+ * @example Tap-trade hot path (ER):
+ * ```ts
+ * const built = await flash.openPosition({ ...template, owner });
+ * const tx = signWithKeypair(built.transactionBase64!, demoKeypair);
+ * const { signature, confirmMs } = await sendAndConfirm(flash.network.erRpc, tx);
+ * console.log(`confirmed on the ER in ${confirmMs}ms`, signature);
+ * ```
+ */
+export async function sendAndConfirm(
+  rpcUrl: string,
+  tx: VersionedTransaction,
+  opts: { timeoutMs?: number; skipPreflight?: boolean } = {},
+): Promise<SendResult> {
+  const { timeoutMs = 60_000, skipPreflight = false } = opts;
+  const connection = new Connection(rpcUrl, "confirmed");
+  const started = Date.now();
+
+  const signature = await connection.sendRawTransaction(tx.serialize(), {
+    skipPreflight,
+    maxRetries: 3,
+  });
+
+  // Poll until confirmed/finalized — works identically on ER and base chain.
+  for (;;) {
+    const status = (await connection.getSignatureStatuses([signature])).value[0];
+    if (status) {
+      if (status.err) {
+        throw new Error(`on-chain error (${signature}): ${JSON.stringify(status.err)}`);
+      }
+      const level = status.confirmationStatus;
+      if (level === "confirmed" || level === "finalized") {
+        return { signature, confirmMs: Date.now() - started };
+      }
+    }
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(`confirmation timeout after ${timeoutMs}ms (sent ${signature})`);
+    }
+    await new Promise((r) => setTimeout(r, 200)); // 200ms poll — ER confirms fast
+  }
+}
+
+/** One-liner for scripts and bots: keypair-sign, submit, confirm, time it. */
+export async function signAndSend(
+  rpcUrl: string,
+  transactionBase64: string,
+  keypair: Keypair,
+  opts?: { timeoutMs?: number; skipPreflight?: boolean },
+): Promise<SendResult> {
+  return sendAndConfirm(rpcUrl, signWithKeypair(transactionBase64, keypair), opts);
+}
+
+─────────────────────────────────────────────────────────────
+FILE: packages/flash-v2/src/guards.ts
+─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// guards.ts — the footguns, encoded. Each guard exists because the API will
+// happily build a transaction that fails on-chain (it does NOT validate
+// trigger prices vs the oracle), or silently does something different than
+// you asked (97% of size = full close). Call these BEFORE you sign.
+// GOTCHAS.md → every guard links to its entry.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import type { TradeType } from "./types.ts";
+
+/** On-chain rule: limit/TP/SL orders need > $10 collateral AFTER entry fees. */
+export const MIN_COLLATERAL_USD_AFTER_FEES = 10;
+/** Practical floor: $11 clears the $10-after-fees rule; $12+ is comfortable. */
+export const RECOMMENDED_MIN_COLLATERAL_USD = 11;
+
+/**
+ * Will this collateral still support TP/SL/limit orders after entry fees?
+ * Open a "$10 position" and fees drop you below $10 → trigger placement FAILS.
+ * @example
+ * checkCollateralForTriggers(11, 0.011)  // → { ok: true, remaining: 10.989 }
+ */
+export function checkCollateralForTriggers(
+  collateralUsd: number,
+  entryFeeUsd = 0,
+): { ok: boolean; remaining: number; reason?: string } {
+  const remaining = collateralUsd - entryFeeUsd;
+  if (remaining > MIN_COLLATERAL_USD_AFTER_FEES) return { ok: true, remaining };
+  return {
+    ok: false,
+    remaining,
+    reason:
+      `$${remaining.toFixed(2)} after fees ≤ $${MIN_COLLATERAL_USD_AFTER_FEES} — TP/SL/limit will fail on-chain. ` +
+      `Use ≥ $${RECOMMENDED_MIN_COLLATERAL_USD} collateral.`,
+  };
+}
+
+export type PriceKind = "limit" | "tp" | "sl";
+
+/**
+ * Validate a limit/TP/SL price against the live mark BEFORE building the tx.
+ * The API does NOT check this — it returns a transaction that the program
+ * rejects with InvalidLimitPrice (custom error 6057).
+ *
+ * Rules (LONG):  limit < mark · TP > mark · SL < mark.   SHORT is the mirror.
+ * @example
+ * validateTriggerPrice({ side: "LONG", kind: "tp", price: 70, markPrice: 65 }) // ok
+ * validateTriggerPrice({ side: "LONG", kind: "tp", price: 60, markPrice: 65 }) // → 6057 explained
+ */
+export function validateTriggerPrice(args: {
+  side: TradeType;
+  kind: PriceKind;
+  price: number;
+  markPrice: number;
+}): { ok: boolean; reason?: string } {
+  const { side, kind, price, markPrice } = args;
+  if (!(price > 0) || !(markPrice > 0)) {
+    return { ok: false, reason: "price and markPrice must be > 0" };
+  }
+  const long = side === "LONG";
+  const mustBeBelow = (long && (kind === "limit" || kind === "sl")) || (!long && kind === "tp");
+  const ok = mustBeBelow ? price < markPrice : price > markPrice;
+  if (ok) return { ok: true };
+  return {
+    ok: false,
+    reason:
+      `${side} ${kind.toUpperCase()} must be ${mustBeBelow ? "below" : "above"} mark ` +
+      `(${price} vs mark ${markPrice}) — on-chain this is InvalidLimitPrice (6057).`,
+  };
+}
+
+/** The program treats ≥97% of position size (or 0) as a FULL close. */
+export const FULL_CLOSE_THRESHOLD = 0.97;
+
+/**
+ * Which close you'll actually get. "Close 98%" is silently a FULL close —
+ * a different on-chain instruction with different response fields.
+ * @param positionSizeUsd Pass the LIVE position size. If it's 0/unknown
+ * (snapshot not loaded yet) this conservatively returns true — verify
+ * `positionSizeUsd > 0` before trusting a "partial" answer.
+ * @example
+ * isFullClose(98, 100)  // → true  (≥97%)
+ * isFullClose(90, 100)  // → false (partial)
+ */
+export function isFullClose(closeUsd: number, positionSizeUsd: number): boolean {
+  if (closeUsd === 0) return true;
+  if (!(positionSizeUsd > 0)) return true;
+  return closeUsd >= positionSizeUsd * FULL_CLOSE_THRESHOLD;
+}
+
+/** Re-exported here so manual fetch users can normalize errors the same way. */
+export { assertNoErr } from "./errors.ts";
+
+─────────────────────────────────────────────────────────────
+FILE: packages/flash-v2/src/owner-stream.ts
+─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// owner-stream.ts — live positions/orders over WebSocket, merged correctly.
+// THE HARD PART: the stream sends TWO frame types. `basket` = the full
+// snapshot (positions + orders + raw bytes) on real on-chain changes;
+// `metrics` = positions-only refreshes on every oracle tick. You must fold
+// metrics INTO the last basket or your orders/basketData go stale. Limits:
+// 5 connections per owner (HTTP 429) — share one. GOTCHAS.md → "WS frames"
+// ─────────────────────────────────────────────────────────────────────────────
+
+import type { NetworkConfig } from "./network.ts";
+import { resolveNetwork } from "./network.ts";
+import type { BasketSnapshot, OwnerWsMessage, PositionMetrics } from "./types.ts";
+
+export interface OwnerStreamOptions {
+  /** Wallet pubkey to stream. */
+  owner: string;
+  /** Network (defaults to mainnet / env). */
+  network?: NetworkConfig;
+  /** Metrics refresh cadence, ms (server clamps 100–10000; shared per owner). */
+  updateIntervalMs?: number;
+  /** Called with the MERGED snapshot on every update (basket or metrics). */
+  onUpdate: (snapshot: BasketSnapshot, source: "basket" | "metrics" | "poll") => void;
+  /** Optional: connection lifecycle + error visibility. */
+  onStatus?: (status: "connecting" | "open" | "reconnecting" | "polling" | "closed", detail?: string) => void;
+}
+
+export interface OwnerStream {
+  /** Latest merged snapshot (undefined until the first frame). */
+  readonly current: BasketSnapshot | undefined;
+  /** Stop the stream and any fallback polling. */
+  close(): void;
+}
+
+/**
+ * Subscribe to `/v2/owner/{owner}/ws` with reconnect + polling fallback.
+ *
+ * Behavior:
+ *  1. WS connect → first `basket` frame is your base state.
+ *  2. `metrics` frames are FOLDED into that state (positions refresh ~1s).
+ *  3. Drops reconnect with backoff (1s/2s/4s). After 3 failures we fall back
+ *     to polling GET /v2/owner every 5s and retry the WS every 30s.
+ *
+ * @example
+ * const stream = subscribeOwner({
+ *   owner,
+ *   onUpdate: (snap, src) => render(snap.positionMetrics, src),
+ * });
+ * // later: stream.close()
+ */
+export function subscribeOwner(opts: OwnerStreamOptions): OwnerStream {
+  const network = opts.network ?? resolveNetwork();
+  const wsBase = network.apiBase.replace(/^http/, "ws");
+  const interval = opts.updateIntervalMs ?? 1000;
+  const url = `${wsBase}/owner/${opts.owner}/ws?updateIntervalMs=${interval}`;
+
+  let current: BasketSnapshot | undefined;
+  let ws: WebSocket | undefined;
+  let closed = false;
+  let attempts = 0;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let wsRetryTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const emit = (source: "basket" | "metrics" | "poll") => {
+    if (current) opts.onUpdate(current, source);
+  };
+
+  const mergeMetrics = (metrics: Record<string, PositionMetrics>) => {
+    if (!current) return; // metrics before any basket frame — nothing to merge into
+    current = { ...current, positionMetrics: metrics };
+  };
+
+  const stopPolling = () => {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+  };
+
+  const startPolling = () => {
+    if (pollTimer || closed) return;
+    opts.onStatus?.("polling", "WS unavailable — polling /owner every 5s");
+    const poll = async () => {
+      try {
+        const res = await fetch(`${network.apiBase}/owner/${opts.owner}`);
+        if (res.ok) {
+          current = (await res.json()) as BasketSnapshot;
+          emit("poll");
+        }
+      } catch { /* keep polling; WS retry below recovers us */ }
+    };
+    void poll();
+    pollTimer = setInterval(poll, 5_000);
+    // Periodically try to get the real-time path back.
+    wsRetryTimer = setTimeout(() => { attempts = 0; connect(); }, 30_000);
+  };
+
+  const connect = () => {
+    if (closed) return;
+    opts.onStatus?.(attempts === 0 ? "connecting" : "reconnecting", url);
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      attempts = 0;
+      stopPolling();
+      opts.onStatus?.("open");
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const msg = JSON.parse(String(event.data)) as OwnerWsMessage;
+        if (msg.type === "basket") {
+          current = msg.data;          // full state — new base
+          emit("basket");
+        } else if (msg.type === "metrics") {
+          mergeMetrics(msg.data);      // positions-only — fold into base
+          emit("metrics");
+        }
+      } catch { /* ignore non-JSON frames */ }
+    };
+
+    ws.onclose = () => {
+      if (closed) return;
+      attempts += 1;
+      if (attempts <= 3) {
+        setTimeout(connect, 1000 * 2 ** (attempts - 1)); // 1s, 2s, 4s
+      } else {
+        startPolling();
+      }
+    };
+
+    ws.onerror = () => { ws?.close(); };
+  };
+
+  connect();
+
+  return {
+    get current() { return current; },
+    close() {
+      closed = true;
+      stopPolling();
+      if (wsRetryTimer) clearTimeout(wsRetryTimer);
+      ws?.close();
+      opts.onStatus?.("closed");
+    },
+  };
+}
+
+─────────────────────────────────────────────────────────────
+FILE: packages/flash-v2/src/lifecycle.ts
+─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// lifecycle.ts — THE walkthrough. The complete Flash V2 life of an account:
+//   init → delegate → deposit → (settle) → trade on the ER → withdraw.
+// THE HARD PART: which chain each step belongs to, in which order, and where
+// the waits are. Run it dry (default — builds every tx, signs nothing) or for
+// real on mainnet with --submit + KEYPAIR_PATH. Read top-to-bottom: every step
+// says WHY it exists and WHERE it lands. GOTCHAS.md → "Lifecycle ordering"
+// ─────────────────────────────────────────────────────────────────────────────
+//
+//   bun run lifecycle                         # dry run — safe, no wallet needed
+//   KEYPAIR_PATH=~/.config/solana/mainnet.json bun run lifecycle -- --submit
+//
+// ── The map ──────────────────────────────────────────────────────────────────
+//   BASE CHAIN (network.baseRpc)              EPHEMERAL ROLLUP (network.erRpc)
+//   1. init-basket            ┐
+//   2. init-deposit-ledger    │ one-time
+//   3. delegate-basket        ┘
+//   4. deposit-direct  ──────────────────▶      5. open  (MARKET, 5x LONG)
+//                                              6. place TP/SL bracket
+//                                              7. read live state (owner snapshot)
+//                                              8. close (full)
+//   9. request-withdrawal ◀──────────────────
+//  10. execute-withdrawal
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { Keypair } from "@solana/web3.js";
+import { readFileSync } from "node:fs";
+import { FlashV2Client } from "./client.ts";
+import { signAndSend } from "./sign.ts";
+import {
+  checkCollateralForTriggers,
+  validateTriggerPrice,
+  RECOMMENDED_MIN_COLLATERAL_USD,
+} from "./guards.ts";
+import { FlashV2Error } from "./errors.ts";
+
+const SUBMIT = process.argv.includes("--submit");
+const MARKET = process.env.MARKET ?? "SOL";
+const COLLATERAL = process.env.COLLATERAL ?? "USDC";
+const DEPOSIT_UI = process.env.DEPOSIT_UI ?? "15";          // ledger funding
+const OPEN_UI = process.env.OPEN_UI ?? String(RECOMMENDED_MIN_COLLATERAL_USD); // ≥$11 → TP/SL allowed
+
+const flash = new FlashV2Client(); // mainnet by default — see network.ts
+
+// In dry-run mode any pubkey works (we only BUILD transactions, never sign).
+// In --submit mode the keypair is the owner and signs everything.
+function resolveOwner(): { owner: string; keypair?: Keypair } {
+  if (!SUBMIT) {
+    const throwaway = Keypair.generate();
+    return { owner: throwaway.publicKey.toBase58() };
+  }
+  const path = process.env.KEYPAIR_PATH;
+  if (!path) throw new Error("--submit needs KEYPAIR_PATH=<mainnet keypair json>. Use a THROWAWAY mainnet wallet.");
+  const keypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))));
+  return { owner: keypair.publicKey.toBase58(), keypair };
+}
+
+// Some build endpoints REQUIRE existing on-chain state (a basket, a position).
+// On a fresh owner they fail — that's expected, not broken. We say so.
+async function step<T>(label: string, run: () => Promise<T>, opts?: { expectErrorOnFreshOwner?: boolean }): Promise<T | undefined> {
+  process.stdout.write(`\n▶ ${label}\n`);
+  try {
+    const out = await run();
+    const tx = (out as { transactionBase64?: string | null } | undefined)?.transactionBase64;
+    console.log(tx ? `  ✓ built unsigned tx (${tx.length} base64 chars)` : "  ✓ ok");
+    return out;
+  } catch (e) {
+    if (e instanceof FlashV2Error && opts?.expectErrorOnFreshOwner && !SUBMIT) {
+      console.log(`  ◦ expected on a fresh owner (needs on-chain state): ${e.message}`);
+      return undefined;
+    }
+    throw e;
+  }
+}
+
+async function submitIf(label: string, chain: "base" | "er", tx: string | null | undefined, keypair?: Keypair) {
+  if (!SUBMIT || !tx || !keypair) return;
+  const rpc = chain === "er" ? flash.network.erRpc : flash.network.baseRpc;
+  const { signature, confirmMs } = await signAndSend(rpc, tx, keypair);
+  console.log(`  ⛓ ${label} confirmed on ${chain.toUpperCase()} in ${confirmMs}ms → ${signature}`);
+}
+
+const { owner, keypair } = resolveOwner();
+console.log(`Flash V2 lifecycle — ${flash.network.name} — owner ${owner}`);
+console.log(SUBMIT ? "MODE: --submit (REAL mainnet transactions)" : "MODE: dry run (build-only, nothing is signed or sent)");
+
+// ── 0. Reads: prove the API is alive before touching a wallet ────────────────
+const health = await step("health — is the deployment alive? which pool config?", () => flash.health());
+if (health) console.log(`  program=${health.program} env=${health.config.env} baskets=${health.accounts.baskets ?? "?"}`);
+
+const price = await step(`price ${MARKET} — live Pyth Lazer oracle`, () => flash.price(MARKET));
+const mark = price ? price.priceUi : 0;
+if (price) console.log(`  ${MARKET} = $${price.priceUi} (${price.marketSession})`);
+
+const tokens = await step("tokens — symbols + MINT addresses (deposits need the mint)", () => flash.tokens());
+const collateralMint = tokens?.find((t) => t.symbol.toUpperCase() === COLLATERAL.toUpperCase())?.mintKey;
+if (collateralMint) console.log(`  ${COLLATERAL} mint = ${collateralMint}`);
+
+// ── 1–3. One-time account setup — ALL on the BASE chain ──────────────────────
+const init = await step("1. init-basket — your one Basket PDA holds ALL positions+orders", () =>
+  flash.initBasket({ owner }));
+await submitIf("init-basket", "base", init?.transactionBase64, keypair);
+
+const ledger = await step("2. init-deposit-ledger — your collateral inbox", () =>
+  flash.initDepositLedger({ owner }));
+await submitIf("init-deposit-ledger", "base", ledger?.transactionBase64, keypair);
+
+const delegate = await step("3. delegate-basket — hand the basket to the MagicBlock validator", () =>
+  flash.delegateBasket({ payer: owner, owner }));
+await submitIf("delegate-basket", "base", delegate?.transactionBase64, keypair);
+
+// ── 4. Fund it (base chain) ──────────────────────────────────────────────────
+const deposit = collateralMint
+  ? await step(`4. deposit-direct — ${DEPOSIT_UI} ${COLLATERAL} into the vault (mint, not symbol!)`, () =>
+      flash.depositDirect({ owner, tokenMint: collateralMint, amount: DEPOSIT_UI }))
+  : undefined;
+await submitIf("deposit-direct", "base", deposit?.transactionBase64, keypair);
+
+// ── 5. Trade — on the EPHEMERAL ROLLUP from here until withdrawal ────────────
+const collateralCheck = checkCollateralForTriggers(Number(OPEN_UI), Number(OPEN_UI) * 0.001);
+console.log(`\n▶ guard: collateral $${OPEN_UI} after ~fees → ${collateralCheck.ok ? "OK for TP/SL" : collateralCheck.reason}`);
+
+const open = await step(`5. open-position — ${OPEN_UI} ${COLLATERAL} × 5x LONG ${MARKET} (MARKET order)`, () =>
+  flash.openPosition({
+    inputTokenSymbol: COLLATERAL,
+    outputTokenSymbol: MARKET,
+    inputAmountUi: OPEN_UI,
+    leverage: 5,
+    tradeType: "LONG",
+    orderType: "MARKET",
+    owner,
+    slippagePercentage: "0.5",
+  }), { expectErrorOnFreshOwner: true });
+if (open) {
+  console.log(`  entry≈$${open.newEntryPrice} fee=$${open.entryFee} liq≈$${open.newLiquidationPrice} borrow=${open.marginFeePercentage}%/h`);
+}
+await submitIf("open-position", "er", open?.transactionBase64, keypair);
+
+// ── 6. Bracket it — TP/SL prices MUST be on the right side of mark ───────────
+if (mark > 0) {
+  const tp = mark * 1.1, sl = mark * 0.9;
+  for (const [kind, p] of [["tp", tp], ["sl", sl]] as const) {
+    const v = validateTriggerPrice({ side: "LONG", kind, price: p, markPrice: mark });
+    console.log(`\n▶ guard: ${kind.toUpperCase()} ${p.toFixed(2)} vs mark ${mark.toFixed(2)} → ${v.ok ? "valid" : v.reason}`);
+  }
+  const bracket = await step("6. place-tp-sl — bracket the position in ONE atomic tx", () =>
+    flash.placeTpSl({
+      marketSymbol: MARKET,
+      side: "LONG",
+      takeProfitUi: tp.toFixed(2),
+      stopLossUi: sl.toFixed(2),
+      sizeAmountUi: open?.outputAmountUi ?? "0.1",
+      owner,
+    }), { expectErrorOnFreshOwner: true });
+  await submitIf("place-tp-sl", "er", bracket?.transactionBase64, keypair);
+}
+
+// ── 7. Read your live state — snapshot now; subscribeOwner() for streaming ───
+const snap = await step("7. owner snapshot — positions+orders, PnL/leverage/liq pre-computed", () =>
+  flash.owner(owner));
+if (snap) {
+  const positions = Object.values(snap.positionMetrics);
+  console.log(`  basket=${snap.basketPubkey ?? "none yet"} · ${positions.length} live position(s)`);
+  for (const p of positions) console.log(`  ${p.marketSymbol} ${p.sideUi} ${p.sizeUsdUi} USD · PnL ${p.pnlWithFeeUsdUi}`);
+}
+
+// ── 8. Close — "0" (or ≥97% of size) = FULL close, different instruction ─────
+const close = await step(`8. close-position — full close ("0" = everything)`, () =>
+  flash.closePosition({
+    marketSymbol: MARKET,
+    side: "LONG",
+    inputUsdUi: "0",
+    withdrawTokenSymbol: COLLATERAL,
+    owner,
+  }), { expectErrorOnFreshOwner: true });
+if (close) console.log(`  receive ≈ ${close.receiveTokenAmountUi} ${close.receiveTokenSymbol} · settled PnL ${close.settledPnl}`);
+await submitIf("close-position", "er", close?.transactionBase64, keypair);
+
+// ── 9–10. Withdraw — back on the BASE chain ──────────────────────────────────
+if (collateralMint) {
+  const reqW = await step("9. request-withdrawal — escrow + schedule settlement", () =>
+    flash.requestWithdrawal({ owner, tokenMint: collateralMint, amount: "1" }),
+    { expectErrorOnFreshOwner: true });
+  await submitIf("request-withdrawal", "base", reqW?.transactionBase64, keypair);
+
+  const execW = await step("10. execute-withdrawal — funds land in your wallet", () =>
+    flash.executeWithdrawal({ owner, tokenMint: collateralMint }),
+    { expectErrorOnFreshOwner: true });
+  await submitIf("execute-withdrawal", "base", execW?.transactionBase64, keypair);
+}
+
+console.log(`\n${SUBMIT ? "Lifecycle complete." : "Dry run complete — every endpoint exercised, nothing signed."}`);
+console.log("Next: examples/tap-trade for the speed demo, GOTCHAS.md for the sharp edges.");
+
+─────────────────────────────────────────────────────────────
+FILE: packages/flash-v2/src/hello.ts
+─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// hello.ts — your first success, in under a minute, with NO wallet.
+// Reads a live oracle price from the hosted mainnet API, then asks for a full
+// trade QUOTE (omitting `owner` = preview-only: real math, no transaction).
+// If this prints numbers, you are connected to Flash V2 on MagicBlock.
+// Next: lifecycle.ts (the full account walkthrough) → examples/tap-trade.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { FlashV2Client } from "./client.ts";
+
+const flash = new FlashV2Client(); // mainnet by default (override: FLASH_V2_BASE_URL)
+
+console.log(`network: ${flash.network.name} → ${flash.network.apiBase}\n`);
+
+// 1) A read — no auth, no wallet, just data.
+const sol = await flash.price("SOL");
+console.log(`SOL = $${sol.priceUi}  (Pyth Lazer, session: ${sol.marketSession})`);
+
+// 2) A real quote — same endpoint that builds transactions, minus `owner`.
+const quote = await flash.openPosition({
+  inputTokenSymbol: "USDC",
+  outputTokenSymbol: "SOL",
+  inputAmountUi: "11",      // ≥ $11 so TP/SL stay possible after fees (GOTCHAS.md)
+  leverage: 5,
+  tradeType: "LONG",
+});
+
+console.log(`\nQuote — 11 USDC × 5x LONG SOL`);
+console.log(`  entry price     $${quote.newEntryPrice}`);
+console.log(`  entry fee       $${quote.entryFee}`);
+console.log(`  liquidation     $${quote.newLiquidationPrice}`);
+console.log(`  hourly borrow   ${quote.marginFeePercentage}%`);
+console.log(`  position size   ${quote.outputAmountUi} SOL`);
+
+console.log(`\nThat's the whole loop: read → quote. Add \`owner\` to get an unsigned`);
+console.log(`transaction back, then sign.ts submits it to the right chain.`);
+console.log(`→ next: bun run lifecycle`);
+

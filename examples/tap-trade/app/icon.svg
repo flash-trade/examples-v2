@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- tap-trade favicon — Flash bolt on the app's green-tinted black. -->
+  <rect width="64" height="64" rx="14" fill="#0a0d0b"/>
+  <path d="M36 8 L18 36 H30 L26 56 L46 26 H33 Z" fill="url(#g)"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe600"/>
+      <stop offset="1" stop-color="#3ee787"/>
+    </linearGradient>
+  </defs>
+</svg>

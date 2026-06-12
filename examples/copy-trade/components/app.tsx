@@ -22,6 +22,7 @@ import { makeSessionSigner } from "@/lib/signer";
 import { enableOneClickTrading, type EnableState } from "@/lib/enable";
 import { useLeaderboard, isLikelyPubkey, type LeaderRow } from "@/lib/leaders";
 import { useCopyEngine, type CopyConfig } from "@/lib/copy-engine";
+import FundsSheet from "@/components/funds-sheet";
 
 // ── providers ────────────────────────────────────────────────────────────────
 export default function App() {
@@ -92,6 +93,7 @@ function AppInner() {
   // ── copy config ──────────────────────────────────────────────────────────────
   const [cfg, setCfg] = useState<CopyConfig>({ mode: "manual", armed: false, budgetUsd: 50, maxPerTradeUsd: 15 });
   const setC = (p: Partial<CopyConfig>) => setCfg((c) => ({ ...c, ...p }));
+  const [fundsOpen, setFundsOpen] = useState(false);
 
   const engine = useCopyEngine({ leader, signer, followerCollateralUsd, config: cfg });
 
@@ -125,6 +127,7 @@ function AppInner() {
         address={owner}
         inBasketUsd={basketExists ? inBasketUsd : null}
         onConnect={() => walletCtx.select?.(walletCtx.wallets[0]?.adapter.name ?? null)}
+        onBack={leader ? () => setLeader(null) : undefined}
         streamStatus={leader ? engine.status : null}
       />
 
@@ -155,6 +158,7 @@ function AppInner() {
             enableState={enableState}
             err={err}
             onEnable={runEnable}
+            onFunds={() => setFundsOpen(true)}
             cfg={cfg}
             setC={setC}
             engine={engine}
@@ -163,9 +167,24 @@ function AppInner() {
           />
         </div>
       )}
-      <p className="px-1 text-center text-[10px] leading-relaxed text-faint">
-        Flash V2 mainnet · real funds. Copy trading carries the leader&apos;s risk — start small, watch the spread, keep your budget what you can lose.
+      <p className="px-1 text-center text-[10px] text-faint">
+        Mainnet · real funds. You take the leader&apos;s risk — start small.
       </p>
+
+      <FundsSheet
+        open={fundsOpen}
+        onClose={() => setFundsOpen(false)}
+        walletCtx={walletCtx.publicKey && walletCtx.signTransaction
+          ? { publicKey: walletCtx.publicKey, signTransaction: walletCtx.signTransaction, signAllTransactions: walletCtx.signAllTransactions }
+          : null}
+        usdcMint={usdcMint}
+        walletUsdc={balances.usdc}
+        walletSol={balances.sol}
+        inBasketUsd={basketBal?.inBasketUsd ?? null}
+        rollupAssets={basketBal?.assets ?? null}
+        onLog={() => {}}
+        onMoved={() => { void balances.refresh(); void refreshBasket(); }}
+      />
     </main>
   );
 }
@@ -173,21 +192,29 @@ function AppInner() {
 // ════════════════════════════════════════════════════════════════════════════
 // Header
 // ════════════════════════════════════════════════════════════════════════════
-function Header({ connected, address, inBasketUsd, onConnect, streamStatus }: {
-  connected: boolean; address: string | null; inBasketUsd: number | null; onConnect: () => void; streamStatus: string | null;
+function Header({ connected, address, inBasketUsd, onConnect, onBack, streamStatus }: {
+  connected: boolean; address: string | null; inBasketUsd: number | null; onConnect: () => void; onBack?: () => void; streamStatus: string | null;
 }) {
   return (
-    <header className="glass spec flex items-center justify-between rounded-[20px] px-4 py-2.5">
+    <header className="glass spec flex items-center justify-between rounded-[20px] px-3 py-2.5 sm:px-4">
       <div className="flex items-center gap-2.5">
-        <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-accent/15 text-accent">
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13l0-8Z" /></svg>
-        </span>
-        <div className="leading-none">
-          <p className="font-display text-[15px] font-bold tracking-tight text-ink">Copy Trade</p>
-          <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-faint">Flash V2 · ephemeral rollup</p>
-        </div>
+        {onBack ? (
+          <button onClick={onBack} className="press mag glass-2 spec flex items-center gap-1.5 rounded-full py-1.5 pl-2 pr-3.5 text-[13px] font-semibold text-ink">
+            <span className="disc grid h-6 w-6 place-items-center rounded-full bg-white/10">
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.9"><path d="M19 12H5M11 6l-6 6 6 6" /></svg>
+            </span>
+            Back
+          </button>
+        ) : (
+          <>
+            <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-accent/15 text-accent">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13l0-8Z" /></svg>
+            </span>
+            <p className="font-display text-[15px] font-bold tracking-tight text-ink">Copy Trade</p>
+          </>
+        )}
         {streamStatus && (
-          <span className="ml-2 flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 font-mono text-[10px] text-dim">
+          <span className="flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 font-mono text-[10px] text-dim">
             <span className={`h-1.5 w-1.5 rounded-full ${streamStatus === "live" ? "bg-long soft-pulse" : "bg-gold"}`} />
             {streamStatus}
           </span>
@@ -219,12 +246,27 @@ function Discover({ board, paste, setPaste, onFollow, prices }: {
   board: ReturnType<typeof useLeaderboard>; paste: string; setPaste: (s: string) => void; onFollow: (o: string) => void; prices: Record<string, number>;
 }) {
   void prices;
+  const [sortBy, setSortBy] = useState<"pnl" | "win" | "vol" | "trades">("pnl");
+  const [liveOnly, setLiveOnly] = useState(false);
+  const shown = useMemo(() => {
+    const base = liveOnly ? board.leaders.filter((l) => (board.openByOwner[l.owner] ?? 0) > 0) : board.leaders;
+    return [...base].sort((a, b) =>
+      sortBy === "win" ? b.win_rate - a.win_rate
+        : sortBy === "vol" ? b.total_volume_usd - a.total_volume_usd
+          : sortBy === "trades" ? b.num_trades - a.num_trades
+            : b.net_pnl - a.net_pnl,
+    ).slice(0, 12);
+  }, [board.leaders, board.openByOwner, sortBy, liveOnly]);
+  const sorts: { k: typeof sortBy; label: string }[] = [
+    { k: "pnl", label: "Top PnL" }, { k: "win", label: "Win rate" }, { k: "vol", label: "Volume" }, { k: "trades", label: "Most trades" },
+  ];
+
   return (
     <section className="glass-in flex flex-1 flex-col gap-4">
-      <div className="flex flex-col gap-1 px-1 pt-2">
-        <span className="w-max rounded-full bg-white/5 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-gold">leaderboard · live ER</span>
-        <h1 className="font-display text-[28px] font-bold leading-tight tracking-tight text-ink sm:text-[34px]">Follow the proven.</h1>
-        <p className="max-w-xl text-sm leading-relaxed text-dim">Real Flash V2 traders, ranked by net PnL and win rate on the rollup. Pick one — or paste any wallet — and mirror their moves onto your account.</p>
+      <div className="flex flex-col gap-1 px-1 pt-1">
+        <span className="w-max rounded-full bg-white/5 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-gold">live · ranked</span>
+        <h1 className="font-display text-[26px] font-bold leading-tight tracking-tight text-ink sm:text-[32px]">Copy a winner.</h1>
+        <p className="text-sm text-dim">Pick a leader. Mirror their trades.</p>
       </div>
 
       <div className="bezel">
@@ -233,13 +275,29 @@ function Discover({ board, paste, setPaste, onFollow, prices }: {
           <input
             value={paste}
             onChange={(e) => setPaste(e.target.value.trim())}
-            placeholder="paste a leader wallet address to follow…"
+            placeholder="or paste a wallet"
             className="w-full bg-transparent font-mono text-[13px] text-ink outline-none placeholder:text-faint"
           />
           {isLikelyPubkey(paste) && (
             <button onClick={() => onFollow(paste)} className="press shrink-0 rounded-full bg-long px-4 py-1.5 text-[12px] font-bold text-bg">Follow</button>
           )}
         </label>
+      </div>
+
+      {/* sort + live filter — rank the same 50 leaders by the metric you care about */}
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+          {sorts.map((s) => (
+            <button key={s.k} onClick={() => setSortBy(s.k)}
+              className={`press shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors ${sortBy === s.k ? "glass-2 text-ink" : "glass-flat text-dim hover:text-ink"}`}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setLiveOnly((v) => !v)}
+          className={`press ml-auto flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors ${liveOnly ? "glass-2 text-long" : "glass-flat text-dim hover:text-ink"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-long soft-pulse" : "bg-faint"}`} />In a trade
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -249,7 +307,10 @@ function Discover({ board, paste, setPaste, onFollow, prices }: {
         {board.error && board.leaders.length === 0 && (
           <div className="glass halo-short col-span-full rounded-[18px] px-4 py-3 text-sm text-short">Couldn&apos;t load the leaderboard: {board.error}</div>
         )}
-        {board.leaders.slice(0, 12).map((l) => (
+        {!board.loading && !board.error && shown.length === 0 && (
+          <div className="glass-flat col-span-full rounded-[18px] px-4 py-6 text-center text-sm text-faint">No one&apos;s in a trade right now.</div>
+        )}
+        {shown.map((l) => (
           <LeaderCard key={l.owner} l={l} live={(board.openByOwner[l.owner] ?? 0) > 0} openCount={board.openByOwner[l.owner] ?? 0} onFollow={() => onFollow(l.owner)} />
         ))}
       </div>
@@ -308,14 +369,14 @@ function LeaderPanel({ leader, row, positions, prices, status, onUnfollow }: {
       </div>
 
       <div className="flex items-center gap-2 px-0.5">
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-faint">leader&apos;s book</span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-faint">their trades</span>
         <span className="h-px flex-1 bg-white/8" />
         <span className="flex items-center gap-1.5 font-mono text-[10px] text-dim"><span className={`h-1.5 w-1.5 rounded-full ${status === "live" ? "bg-long soft-pulse" : "bg-gold"}`} />{positions.length} open</span>
       </div>
 
       <div className="flex flex-col gap-2">
         {positions.length === 0 && (
-          <div className="glass-flat rounded-[14px] px-4 py-6 text-center text-sm text-faint">{status === "live" ? "leader is flat — waiting for their next move…" : "connecting to the leader stream…"}</div>
+          <div className="glass-flat rounded-[14px] px-4 py-6 text-center text-sm text-faint">{status === "live" ? "No open trades right now." : "Connecting…"}</div>
         )}
         {positions.map((p) => <PositionRow key={`${p.marketSymbol}-${p.sideUi}`} p={p} mark={prices[p.marketSymbol] ?? null} />)}
       </div>
@@ -332,10 +393,13 @@ function PositionRow({ p, mark }: { p: PositionMetrics; mark: number | null }) {
         <span className={`rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold ${long ? "bg-long/14 text-long" : "bg-short/14 text-short"}`}>{long ? "LONG" : "SHORT"}</span>
         <div className="leading-tight">
           <p className="font-display text-[13px] font-semibold text-ink">{p.marketSymbol}</p>
-          <p className="font-mono text-[10px] text-faint">{fmtUsd(p.sizeUsdUi)} · {Number(p.leverageUi || 0).toFixed(1)}× · entry {Number(p.entryPriceUi).toLocaleString()}</p>
+          <p className="font-mono text-[10px] text-dim">
+            <span className="text-faint">size</span> {fmtUsd(p.sizeUsdUi)} <span className="text-faint">· lev</span> {Number(p.leverageUi || 0).toFixed(1)}× <span className="text-faint">· entry</span> {Number(p.entryPriceUi).toLocaleString()}
+          </p>
         </div>
       </div>
-      <div className="text-right">
+      <div className="text-right leading-tight">
+        <p className="font-mono text-[8px] uppercase tracking-[0.12em] text-faint">pnl</p>
         <p className={`font-mono text-[13px] font-semibold tabular-nums ${(view?.pnlUsd ?? 0) >= 0 ? "text-long" : "text-short"}`}>{view ? `${view.pnlUsd >= 0 ? "+" : ""}${fmtUsd(view.pnlUsd)}` : "—"}</p>
         <p className="font-mono text-[10px] text-faint">{view ? `${view.pnlPct >= 0 ? "+" : ""}${view.pnlPct.toFixed(1)}%` : ""}</p>
       </div>
@@ -346,30 +410,30 @@ function PositionRow({ p, mark }: { p: PositionMetrics; mark: number | null }) {
 // ════════════════════════════════════════════════════════════════════════════
 // Console — your status, controls, pending mirrors, fills, your book
 // ════════════════════════════════════════════════════════════════════════════
-function Console({ ready, connected, inBasketUsd, loaded, enabling, enableState, err, onEnable, cfg, setC, engine, followerPositions, prices }: {
+function Console({ ready, connected, inBasketUsd, loaded, enabling, enableState, err, onEnable, onFunds, cfg, setC, engine, followerPositions, prices }: {
   ready: boolean; connected: boolean; inBasketUsd: number; loaded: boolean;
-  enabling: boolean; enableState: EnableState | null; err: string | null; onEnable: () => void;
+  enabling: boolean; enableState: EnableState | null; err: string | null; onEnable: () => void; onFunds: () => void;
   cfg: CopyConfig; setC: (p: Partial<CopyConfig>) => void; engine: ReturnType<typeof useCopyEngine>;
   followerPositions: PositionMetrics[]; prices: Record<string, number>;
 }) {
   // gate: connect → enable → fund → copy
-  if (!connected) return <GateCard title="Connect to copy" body="Connect a wallet to mirror this leader onto your own Flash V2 account." />;
-  if (!loaded) return <GateCard title="Reading your account…" body="Checking whether your basket is set up." pulse />;
+  if (!connected) return <GateCard title="Connect to copy" body="Connect a wallet to start." />;
+  if (!loaded) return <GateCard title="Loading your account…" body="One moment." pulse />;
   if (!ready) return (
     <GateCard
-      title="Enable One-Click Trading"
-      body="One approval sets up your basket + a session key so every mirror auto-signs — no popups, no custody. The only transfer is ~0.01 SOL of recoverable session rent."
+      title="Enable one-click"
+      body="One approval. Sets up your account + a session key so mirrors auto-sign — no popups. ~0.01 SOL rent, refundable."
       action={{ label: enabling ? (enableState?.headline ?? "setting up…") : "Enable", onClick: onEnable, busy: enabling }}
       error={err}
     />
   );
   if (inBasketUsd < 1) return (
-    <GateCard title="Deposit to size your copies" body="Your account is set up and empty. Deposit USDC — the engine sizes each mirror by your collateral ÷ the leader's, so it needs a balance to copy against." />
+    <GateCard title="Add USDC" body="Copies size from your balance." action={{ label: "Deposit", onClick: onFunds }} />
   );
 
   return (
     <section className="glass-in flex flex-col gap-3">
-      <Controls cfg={cfg} setC={setC} spent={engine.spentUsd} inBasketUsd={inBasketUsd} />
+      <Controls cfg={cfg} setC={setC} spent={engine.spentUsd} inBasketUsd={inBasketUsd} onFunds={onFunds} />
       <Pending engine={engine} />
       <Fills engine={engine} />
       <YourBook positions={followerPositions} prices={prices} />
@@ -393,54 +457,69 @@ function GateCard({ title, body, action, error, pulse }: { title: string; body: 
   );
 }
 
-function Controls({ cfg, setC, spent, inBasketUsd }: { cfg: CopyConfig; setC: (p: Partial<CopyConfig>) => void; spent: number; inBasketUsd: number }) {
+function Controls({ cfg, setC, spent, inBasketUsd, onFunds }: { cfg: CopyConfig; setC: (p: Partial<CopyConfig>) => void; spent: number; inBasketUsd: number; onFunds: () => void }) {
   const auto = cfg.mode === "auto";
   return (
     <div className="glass spec rounded-[20px] p-4">
       <div className="flex items-center justify-between">
-        <div>
-          <p className="font-display text-[15px] font-bold text-ink">Copy controls</p>
-          <p className="mt-0.5 font-mono text-[10px] text-faint">balance {fmtUsd(inBasketUsd)} · spent {fmtUsd(spent)} / {fmtUsd(cfg.budgetUsd)}</p>
-        </div>
-        {/* mode toggle */}
-        <div className="flex rounded-full bg-white/5 p-0.5 text-[11px] font-semibold">
-          <button onClick={() => setC({ mode: "manual", armed: false })} className={`rounded-full px-3 py-1.5 transition-colors ${!auto ? "bg-white/10 text-ink" : "text-faint"}`}>manual</button>
-          <button onClick={() => setC({ mode: "auto" })} className={`rounded-full px-3 py-1.5 transition-colors ${auto ? "bg-white/10 text-ink" : "text-faint"}`}>auto</button>
+        <p className="font-display text-[15px] font-bold text-ink">How to copy</p>
+        <div className="flex rounded-full bg-white/5 p-0.5 text-[12px] font-semibold">
+          <button onClick={() => setC({ mode: "manual", armed: false })} className={`rounded-full px-3 py-1.5 transition-colors ${!auto ? "bg-white/10 text-ink" : "text-faint"}`}>Ask me</button>
+          <button onClick={() => setC({ mode: "auto" })} className={`rounded-full px-3 py-1.5 transition-colors ${auto ? "bg-white/10 text-ink" : "text-faint"}`}>Auto</button>
         </div>
       </div>
+      <p className="mt-1.5 text-xs text-dim">
+        {auto ? "Every trade they make copies automatically." : "We ask before each trade — you tap to confirm."}
+      </p>
 
-      <div className="mt-3 grid grid-cols-2 gap-2.5">
-        <NumField label="budget (USD)" value={cfg.budgetUsd} onChange={(v) => setC({ budgetUsd: v })} />
-        <NumField label="max / trade (USD)" value={cfg.maxPerTradeUsd} onChange={(v) => setC({ maxPerTradeUsd: v })} />
+      {/* your money — tap to deposit / withdraw */}
+      <button onClick={onFunds} className="press lift glass-flat mt-3 flex w-full items-center justify-between rounded-[13px] px-3.5 py-2.5 text-left">
+        <span className="flex flex-col leading-tight">
+          <span className="text-[10px] uppercase tracking-[0.12em] text-faint">your balance</span>
+          <span className="font-mono text-[15px] tabular-nums text-ink">{fmtUsd(inBasketUsd)}</span>
+        </span>
+        <span className="flex items-center gap-1.5 rounded-full bg-white/8 px-3 py-1.5 text-[12px] font-semibold text-dim">deposit / withdraw</span>
+      </button>
+
+      <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+        <NumField label="Total budget" hint="most you'll ever use" value={cfg.budgetUsd} onChange={(v) => setC({ budgetUsd: v })} />
+        <NumField label="Max per trade" hint="cap on one copy" value={cfg.maxPerTradeUsd} onChange={(v) => setC({ maxPerTradeUsd: Math.max(1, v) })} />
       </div>
+      <p className="mt-1.5 font-mono text-[10px] text-faint">Used {fmtUsd(spent)} of {fmtUsd(cfg.budgetUsd)}.</p>
 
       {auto && (
         <button
           onClick={() => setC({ armed: !cfg.armed })}
-          className={`press mt-3 flex w-full items-center justify-center gap-2 rounded-full py-2.5 text-[13px] font-bold ${cfg.armed ? "glass-2 halo-short text-short shimmer" : "glass-2 halo-long text-long"}`}
+          className={`press mt-3 flex w-full items-center justify-center gap-2 rounded-full py-3 text-[14px] font-bold ${cfg.armed ? "glass-2 halo-short text-short shimmer" : "glass-2 halo-long text-long"}`}
         >
           {cfg.armed
-            ? <><span className="h-2 w-2 rounded-full bg-short" /> ARMED — auto-copying · tap to kill</>
-            : <><span className="h-2 w-2 rounded-full bg-long" /> Arm auto-copy</>}
+            ? <><span className="h-2 w-2 rounded-full bg-short" /> Copying — tap to stop</>
+            : <><span className="h-2 w-2 rounded-full bg-long" /> Start auto-copy</>}
         </button>
       )}
       {auto && cfg.armed && (
-        <p className="mt-2 text-center font-mono text-[10px] leading-relaxed text-faint">mirrors execute automatically within your caps while this tab stays open. Keep the budget what you can lose.</p>
+        <p className="mt-2 text-center font-mono text-[10px] text-faint">Copying automatically. Keep this tab open.</p>
       )}
     </div>
   );
 }
 
-function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function NumField({ label, hint, value, onChange }: { label: string; hint?: string; value: number; onChange: (v: number) => void }) {
   return (
-    <label className="glass-flat flex items-center justify-between rounded-[12px] px-3 py-2">
-      <span className="text-[11px] text-dim">{label}</span>
-      <input
-        value={String(value)}
-        onChange={(e) => onChange(Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
-        inputMode="decimal"
-        className="w-16 bg-transparent text-right font-mono text-sm tabular-nums text-ink outline-none"
-      />
+    <label className="glass-flat block rounded-[12px] px-3 py-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-dim">{label}</span>
+        <span className="flex items-baseline">
+          <span className="font-mono text-xs text-faint">$</span>
+          <input
+            value={String(value)}
+            onChange={(e) => onChange(Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
+            inputMode="decimal"
+            className="w-12 bg-transparent text-right font-mono text-sm tabular-nums text-ink outline-none"
+          />
+        </span>
+      </div>
+      {hint && <span className="mt-0.5 block font-mono text-[9px] text-faint">{hint}</span>}
     </label>
   );
 }
@@ -482,7 +561,7 @@ function Fills({ engine }: { engine: ReturnType<typeof useCopyEngine> }) {
   if (engine.fills.length === 0) return null;
   return (
     <div className="glass spec rounded-[18px] p-3.5">
-      <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-faint">mirror log</p>
+      <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-faint">activity</p>
       <div className="flex max-h-[230px] flex-col gap-1.5 overflow-y-auto">
         {engine.fills.map((f) => (
           <div key={f.id} className="row-in flex items-center justify-between gap-2 py-0.5">
@@ -508,12 +587,12 @@ function YourBook({ positions, prices }: { positions: PositionMetrics[]; prices:
   return (
     <div className="glass spec rounded-[18px] p-3.5">
       <div className="mb-2 flex items-center gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-faint">your mirror</span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-faint">your copies</span>
         <span className="h-px flex-1 bg-white/8" />
         <span className="font-mono text-[10px] text-dim">{positions.length} open</span>
       </div>
       {positions.length === 0
-        ? <p className="px-1 py-3 text-center text-xs text-faint">no mirrored positions yet</p>
+        ? <p className="px-1 py-3 text-center text-xs text-faint">Nothing copied yet.</p>
         : <div className="flex flex-col gap-2">{positions.map((p) => <PositionRow key={`${p.marketSymbol}-${p.sideUi}`} p={p} mark={prices[p.marketSymbol] ?? null} />)}</div>}
     </div>
   );

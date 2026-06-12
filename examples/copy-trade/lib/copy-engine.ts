@@ -134,12 +134,12 @@ export function sizeMirror(
   const budgetLeft = Math.max(0, cfg.budgetUsd - spentUsd);
   const sizeUsd = Math.min(e.deltaUsd * ratio, cfg.maxPerTradeUsd, budgetLeft * e.leverage);
   const collateralUsd = sizeUsd / (e.leverage || 1);
-  if (ratio <= 0) return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: "no follower collateral to size against — deposit first" };
-  if (budgetLeft <= 0) return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: "session budget reached" };
+  if (ratio <= 0) return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: "deposit USDC to copy" };
+  if (budgetLeft <= 0) return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: "budget used up" };
   // FLOORING collateral while keeping leader leverage would inflate the mirror
   // (a $4 copy becoming $44) — too small to mirror honestly, so skip + say so.
   if (collateralUsd < RECOMMENDED_MIN_COLLATERAL_USD) {
-    return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: `mirror too small ($${collateralUsd.toFixed(2)} collateral < $${RECOMMENDED_MIN_COLLATERAL_USD} floor)` };
+    return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: `too small to copy (min $${RECOMMENDED_MIN_COLLATERAL_USD})` };
   }
   return { collateralUsd, sizeUsd, closeUsdUi: null, ratio };
 }
@@ -277,6 +277,7 @@ export function useCopyEngine(args: {
     if (!leader) return;
 
     let prev: BasketSnapshot | undefined;
+    let baselined = false;
     let processing = false;
     let queued: BasketSnapshot | undefined;
     let dead = false;
@@ -288,8 +289,16 @@ export function useCopyEngine(args: {
       processing = true;
       let next: BasketSnapshot | undefined = snap;
       while (next) {
-        for (const raw of diffPositions(prev, next)) routeEvent(raw);
-        prev = structuredClone(next);
+        if (!baselined) {
+          // Baseline: adopt the leader's CURRENT book without copying it — you
+          // don't want to buy a position they're already mid-way through. Copy
+          // only their NEXT move from here.
+          prev = structuredClone(next);
+          baselined = true;
+        } else {
+          for (const raw of diffPositions(prev, next)) routeEvent(raw);
+          prev = structuredClone(next);
+        }
         next = queued;
         queued = undefined;
       }

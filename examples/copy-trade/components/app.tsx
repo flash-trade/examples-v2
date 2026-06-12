@@ -15,7 +15,7 @@ import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
 import { type PositionMetrics } from "flash-v2";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { flash, explorerTx } from "@/lib/flash";
-import { computePositionView, fmtUsd, shortKey } from "@/lib/format";
+import { computePositionView, fmtAmount, fmtUsd, parseAmount, shortKey } from "@/lib/format";
 import { useBalances, useBasketBalance, useOwner, useUsdcMint } from "@/lib/hooks";
 import { loadSession, type LoadedSession } from "@/lib/session";
 import { makeSessionSigner } from "@/lib/signer";
@@ -482,8 +482,8 @@ function Controls({ cfg, setC, spent, inBasketUsd, onFunds }: { cfg: CopyConfig;
       </button>
 
       <div className="mt-2.5 grid grid-cols-2 gap-2.5">
-        <NumField label="Total budget" hint="most you'll ever use" value={cfg.budgetUsd} onChange={(v) => setC({ budgetUsd: v })} />
-        <NumField label="Max per trade" hint="cap on one copy" value={cfg.maxPerTradeUsd} onChange={(v) => setC({ maxPerTradeUsd: Math.max(1, v) })} />
+        <NumField label="Total budget" hint="most you'll ever use" min={1} value={cfg.budgetUsd} onChange={(v) => setC({ budgetUsd: v })} />
+        <NumField label="Max per trade" hint="cap on one copy" min={1} value={cfg.maxPerTradeUsd} onChange={(v) => setC({ maxPerTradeUsd: v })} />
       </div>
       <p className="mt-1.5 font-mono text-[10px] text-faint">Used {fmtUsd(spent)} of {fmtUsd(cfg.budgetUsd)}.</p>
 
@@ -504,7 +504,12 @@ function Controls({ cfg, setC, spent, inBasketUsd, onFunds }: { cfg: CopyConfig;
   );
 }
 
-function NumField({ label, hint, value, onChange }: { label: string; hint?: string; value: number; onChange: (v: number) => void }) {
+function NumField({ label, hint, value, min = 0, onChange }: { label: string; hint?: string; value: number; min?: number; onChange: (v: number) => void }) {
+  const [text, setText] = useState(() => fmtAmount(value));
+  const [editing, setEditing] = useState(false);
+  // Reflect the external value into the field only while NOT editing, so a clamp
+  // or reset elsewhere shows up — but a keystroke is never stomped mid-type.
+  useEffect(() => { if (!editing) setText(fmtAmount(value)); }, [value, editing]);
   return (
     <label className="glass-flat block rounded-[12px] px-3 py-2">
       <div className="flex items-center justify-between">
@@ -512,10 +517,21 @@ function NumField({ label, hint, value, onChange }: { label: string; hint?: stri
         <span className="flex items-baseline">
           <span className="font-mono text-xs text-faint">$</span>
           <input
-            value={String(value)}
-            onChange={(e) => onChange(Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
+            value={text}
             inputMode="decimal"
-            className="w-12 bg-transparent text-right font-mono text-sm tabular-nums text-ink outline-none"
+            onFocus={(e) => { setEditing(true); e.currentTarget.select(); }}
+            onChange={(e) => {
+              const t = e.target.value.replace(/[^\d.,\s]/g, ""); // type freely: digits, '.', ',', spaces
+              setText(t);
+              onChange(parseAmount(t));
+            }}
+            onBlur={() => {
+              const v = Math.max(min, parseAmount(text));         // clamp to the floor on blur, not per keystroke
+              setEditing(false);
+              setText(fmtAmount(v));
+              onChange(v);
+            }}
+            className="w-16 bg-transparent text-right font-mono text-sm tabular-nums text-ink outline-none"
           />
         </span>
       </div>

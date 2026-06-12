@@ -15,7 +15,7 @@ import Sheet from "@/components/sheet";
 import { depositToken, executeWithdrawalToken, withdrawToken, type FundsStep } from "@/lib/funds";
 import type { EnableWalletCtx } from "@/lib/enable";
 import { explorerTx } from "@/lib/flash";
-import { fmtMs, shortKey } from "@/lib/format";
+import { fmtMs, parseAmount, shortKey } from "@/lib/format";
 import type { BasketAsset, LatencyEntry } from "@/lib/hooks";
 
 type Tab = "deposit" | "withdraw";
@@ -90,7 +90,7 @@ export default function FundsSheet({
   const rollupBal = asset === "USDC" ? inBasketUsd : (solAsset?.amountUi ?? 0);
   const max = tab === "deposit" ? walletBal : rollupBal;
   const dp = asset === "USDC" ? 2 : 4; // display/“max” precision per asset
-  const parsed = Number(amount);
+  const parsed = parseAmount(amount);
   const valid = Number.isFinite(parsed) && parsed > 0 && (max === null || parsed <= max + 1e-9);
   const locked = busy; // mid-approval — don't let the sheet close under the wallet popup
 
@@ -241,7 +241,7 @@ export default function FundsSheet({
           inputMode="decimal"
           placeholder={tab === "deposit" ? `amount to deposit (${asset})` : `amount to withdraw (${asset})`}
           value={amount}
-          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,\s]/g, ""))}
           disabled={busy}
           className="h-11 rounded-[3px] border border-edge bg-panel px-3.5 font-mono text-sm tabular-nums text-ink outline-none transition-colors placeholder:text-faint focus:border-long/45 disabled:opacity-35"
         />

@@ -134,7 +134,15 @@ export function sizeMirror(
   const budgetLeft = Math.max(0, cfg.budgetUsd - spentUsd);
   const sizeUsd = Math.min(e.deltaUsd * ratio, cfg.maxPerTradeUsd, budgetLeft * e.leverage);
   const collateralUsd = sizeUsd / (e.leverage || 1);
-  if (ratio <= 0) return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: "deposit USDC to copy" };
+  // ratio hits 0 for two very different reasons — say which. Don't blame the
+  // follower's wallet when it's the leader's position that can't be sized.
+  if (cfg.ratioOverride == null && ratio <= 0) {
+    if (followerCollateralUsd <= 0) return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: "deposit USDC to copy" };
+    // leader collateral ≈ 0 ⇒ near-infinite leverage; a proportional mirror is
+    // undefined (you can't take a fraction of zero), so skip and say so.
+    return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: "leader has ~0 collateral (∞ leverage) — can't size" };
+  }
+  if (ratio <= 0) return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: "can't size this trade" };
   if (budgetLeft <= 0) return { collateralUsd, sizeUsd, closeUsdUi: null, ratio, skip: "budget used up" };
   // FLOORING collateral while keeping leader leverage would inflate the mirror
   // (a $4 copy becoming $44) — too small to mirror honestly, so skip + say so.

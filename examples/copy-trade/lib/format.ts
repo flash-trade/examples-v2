@@ -18,6 +18,31 @@ export function num(v: string | number | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Parse a money string the way people ACTUALLY type it, across locales:
+ *   "1,234.50" (US)   "1.234,50" (EU)   "12,5" (EU decimal)   "1 234"   ".5"   ""
+ * Rule: keep digits + separators, then the LAST '.' or ',' is the decimal point
+ * and every other separator is grouping (dropped). Empty / garbage → 0. Never NaN.
+ */
+export function parseAmount(raw: string): number {
+  const s = (raw ?? "").replace(/[^\d.,]/g, "");
+  if (!s) return 0;
+  const lastSep = Math.max(s.lastIndexOf("."), s.lastIndexOf(","));
+  if (lastSep === -1) return Number(s) || 0;
+  const intDigits = s.slice(0, lastSep).replace(/[.,]/g, "");
+  const fracDigits = s.slice(lastSep + 1).replace(/[.,]/g, "");
+  const n = Number(`${intDigits || "0"}.${fracDigits || "0"}`);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Format a number for an EDITABLE money field: up to `dp` decimals, no trailing
+ *  zeros, no grouping (grouping is ambiguous to re-edit). 0 stays "0". */
+export function fmtAmount(n: number, dp = 6): string {
+  if (!Number.isFinite(n)) return "0";
+  const r = Math.round(n * 10 ** dp) / 10 ** dp;
+  return String(r);
+}
+
 /** USDC has 6 decimals on-chain — tiny but REAL values must never display as
  *  $0.00 (a $5 position's fee is ~$0.004). Adaptive precision: more digits as
  *  the magnitude shrinks, never inventing precision the chain doesn't have. */

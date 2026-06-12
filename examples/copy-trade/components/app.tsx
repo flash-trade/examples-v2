@@ -177,8 +177,6 @@ function AppInner() {
         runningLeader={leader ? shortKey(leader) : null}
         copiedCount={followerPositions.length}
         onResume={() => setView("leader")}
-        onStopAll={stopAll}
-        stopping={stopping}
       />
 
       {view === "leader" && leader ? (
@@ -216,6 +214,10 @@ function AppInner() {
           prices={prices}
           lockedTo={running ? leader : null}
           onResume={() => setView("leader")}
+          running={running}
+          copiedCount={followerPositions.length}
+          onStopAll={stopAll}
+          stopping={stopping}
         />
       )}
       <p className="px-1 text-center text-[10px] text-faint">
@@ -243,9 +245,9 @@ function AppInner() {
 // ════════════════════════════════════════════════════════════════════════════
 // Header
 // ════════════════════════════════════════════════════════════════════════════
-function Header({ connected, address, inBasketUsd, onConnect, onBack, streamStatus, running, runningLeader, copiedCount, onResume, onStopAll, stopping }: {
+function Header({ connected, address, inBasketUsd, onConnect, onBack, streamStatus, running, runningLeader, copiedCount, onResume }: {
   connected: boolean; address: string | null; inBasketUsd: number | null; onConnect: () => void; onBack?: () => void; streamStatus: string | null;
-  running: boolean; runningLeader: string | null; copiedCount: number; onResume: () => void; onStopAll: () => void; stopping: boolean;
+  running: boolean; runningLeader: string | null; copiedCount: number; onResume: () => void;
 }) {
   return (
     <header className="glass spec flex items-center justify-between rounded-[20px] px-3 py-2.5 sm:px-4">
@@ -271,23 +273,16 @@ function Header({ connected, address, inBasketUsd, onConnect, onBack, streamStat
             {streamStatus}
           </span>
         )}
-        {(running || copiedCount > 0) && (
-          <div className="flex items-center gap-1">
-            {running ? (
-              <button onClick={onResume} className="press flex items-center gap-1.5 rounded-full glass-2 halo-long px-2.5 py-1 font-mono text-[10px] text-long">
-                <span className="h-1.5 w-1.5 rounded-full bg-long soft-pulse" />
-                1 copying{runningLeader ? ` · ${runningLeader}` : ""}{copiedCount > 0 ? ` · ${copiedCount} open` : ""}
-              </button>
-            ) : (
-              <span className="flex items-center gap-1.5 rounded-full glass-flat px-2.5 py-1 font-mono text-[10px] text-dim">
-                <span className="h-1.5 w-1.5 rounded-full bg-gold" />{copiedCount} open
-              </span>
-            )}
-            <button onClick={onStopAll} disabled={stopping} className="press rounded-full bg-short/15 px-2.5 py-1 font-mono text-[10px] font-semibold text-short transition-opacity disabled:opacity-50">
-              {stopping ? "closing…" : running ? "Stop all" : "Close all"}
-            </button>
-          </div>
-        )}
+        {running ? (
+          <button onClick={onResume} className="press flex items-center gap-1.5 rounded-full glass-2 halo-long px-2.5 py-1 font-mono text-[10px] text-long">
+            <span className="h-1.5 w-1.5 rounded-full bg-long soft-pulse" />
+            1 copying{runningLeader ? ` · ${runningLeader}` : ""}{copiedCount > 0 ? ` · ${copiedCount} open` : ""}
+          </button>
+        ) : copiedCount > 0 ? (
+          <span className="flex items-center gap-1.5 rounded-full glass-flat px-2.5 py-1 font-mono text-[10px] text-dim">
+            <span className="h-1.5 w-1.5 rounded-full bg-gold" />{copiedCount} open
+          </span>
+        ) : null}
       </div>
       {connected ? (
         <div className="glass-2 spec flex items-center gap-3 rounded-full px-3.5 py-1.5">
@@ -311,40 +306,51 @@ function Header({ connected, address, inBasketUsd, onConnect, onBack, streamStat
 // ════════════════════════════════════════════════════════════════════════════
 // Discover — the leaderboard + paste-a-leader
 // ════════════════════════════════════════════════════════════════════════════
-function Discover({ board, paste, setPaste, onFollow, prices, lockedTo, onResume }: {
+function Discover({ board, paste, setPaste, onFollow, prices, lockedTo, onResume, running, copiedCount, onStopAll, stopping }: {
   board: ReturnType<typeof useLeaderboard>; paste: string; setPaste: (s: string) => void; onFollow: (o: string) => void; prices: Record<string, number>;
-  lockedTo: string | null; onResume: () => void;
+  lockedTo: string | null; onResume: () => void; running: boolean; copiedCount: number; onStopAll: () => void; stopping: boolean;
 }) {
   void prices;
-  const [sortBy, setSortBy] = useState<"pnl" | "win" | "vol" | "trades">("pnl");
-  const [filters, setFilters] = useState<Set<string>>(new Set());
-  const toggle = (k: string) => setFilters((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
-  const shown = useMemo(() => {
-    let base = board.leaders;
-    if (filters.has("live")) base = base.filter((l) => (board.openByOwner[l.owner] ?? 0) > 0);
-    if (filters.has("profit")) base = base.filter((l) => l.net_pnl > 0);
-    if (filters.has("active")) base = base.filter((l) => l.num_trades >= 10);
-    if (filters.has("win50")) base = base.filter((l) => l.win_rate >= 50);
-    return [...base].sort((a, b) =>
-      sortBy === "win" ? b.win_rate - a.win_rate
-        : sortBy === "vol" ? b.total_volume_usd - a.total_volume_usd
-          : sortBy === "trades" ? b.num_trades - a.num_trades
-            : b.net_pnl - a.net_pnl,
-    ).slice(0, 12);
-  }, [board.leaders, board.openByOwner, sortBy, filters]);
-  const sorts: { k: typeof sortBy; label: string }[] = [
+  // Pick one or more metric chips — multiple combine into a normalized blend
+  // (e.g. Top PnL + Most trades = strong on both). "In a trade" is independent.
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(["pnl"]));
+  const [liveOnly, setLiveOnly] = useState(false);
+  const toggleMetric = (k: string) => setPicked((prev) => {
+    const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k);
+    if (n.size === 0) n.add("pnl"); // never empty — fall back to Top PnL
+    return n;
+  });
+  const metrics: { k: string; label: string }[] = [
     { k: "pnl", label: "Top PnL" }, { k: "win", label: "Win rate" }, { k: "vol", label: "Volume" }, { k: "trades", label: "Most trades" },
   ];
-  const filterDefs: { k: string; label: string }[] = [
-    { k: "live", label: "In a trade" }, { k: "profit", label: "Profitable" }, { k: "active", label: "≥10 trades" }, { k: "win50", label: "Win ≥50%" },
-  ];
+  const shown = useMemo(() => {
+    const base = liveOnly ? board.leaders.filter((l) => (board.openByOwner[l.owner] ?? 0) > 0) : board.leaders;
+    const val = (l: LeaderRow, k: string) => k === "win" ? l.win_rate : k === "vol" ? l.total_volume_usd : k === "trades" ? l.num_trades : l.net_pnl;
+    // normalize each picked metric to 0..1 across the board so they're comparable, then sum
+    const ranges = [...picked].map((k) => {
+      const vals = base.map((l) => val(l, k));
+      const min = Math.min(...vals); const span = (Math.max(...vals) - min) || 1;
+      return { k, min, span };
+    });
+    const score = (l: LeaderRow) => ranges.reduce((s, r) => s + (val(l, r.k) - r.min) / r.span, 0);
+    return [...base].sort((a, b) => score(b) - score(a)).slice(0, 12);
+  }, [board.leaders, board.openByOwner, picked, liveOnly]);
 
   return (
     <section className="glass-in flex flex-1 flex-col gap-4">
-      <div className="flex flex-col gap-1 px-1 pt-1">
-        <span className="w-max rounded-full bg-white/5 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-gold">live · ranked</span>
-        <h1 className="font-display text-[26px] font-bold leading-tight tracking-tight text-ink sm:text-[32px]">Copy a winner.</h1>
-        <p className="text-sm text-dim">Pick a leader. Mirror their trades.</p>
+      <div className="flex items-start justify-between gap-4 px-1 pt-1">
+        <div className="flex flex-col gap-1">
+          <span className="w-max rounded-full bg-white/5 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-gold">live · ranked</span>
+          <h1 className="font-display text-[26px] font-bold leading-tight tracking-tight text-ink sm:text-[32px]">Copy a winner.</h1>
+          <p className="text-sm text-dim">Pick a leader. Mirror their trades.</p>
+        </div>
+        {(running || copiedCount > 0) && (
+          <button onClick={onStopAll} disabled={stopping}
+            className="press lift halo-short flex shrink-0 items-center gap-2 self-center rounded-full bg-short px-7 py-3.5 text-[15px] font-bold text-white shadow-[0_10px_34px_-8px_rgba(244,63,94,0.7)] transition-opacity disabled:opacity-60">
+            <span className="h-2 w-2 rounded-full bg-white/90" />
+            {stopping ? "Closing…" : "Stop all"}{copiedCount > 0 ? ` · ${copiedCount}` : ""}
+          </button>
+        )}
       </div>
 
       {lockedTo && (
@@ -372,32 +378,23 @@ function Discover({ board, paste, setPaste, onFollow, prices, lockedTo, onResume
         </label>
       </div>
 
-      {/* SORT (pick one) + FILTERS (stack as many as you want) */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-          <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-faint">sort</span>
-          {sorts.map((s) => (
-            <button key={s.k} onClick={() => setSortBy(s.k)}
-              className={`press shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors ${sortBy === s.k ? "glass-2 text-ink" : "glass-flat text-dim hover:text-ink"}`}>
-              {s.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-          <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-faint">filter</span>
-          {filterDefs.map((f) => {
-            const on = filters.has(f.k);
+      {/* metric chips — pick one or combine several — plus an independent "in a trade" */}
+      <div className="flex items-center gap-2">
+        <div className="flex flex-1 gap-1.5 overflow-x-auto pb-0.5">
+          {metrics.map((m) => {
+            const on = picked.has(m.k);
             return (
-              <button key={f.k} onClick={() => toggle(f.k)}
-                className={`press flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors ${on ? "glass-2 text-long" : "glass-flat text-dim hover:text-ink"}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-long" : "bg-faint"}`} />{f.label}
+              <button key={m.k} onClick={() => toggleMetric(m.k)}
+                className={`press shrink-0 rounded-full px-4 py-2 text-[12.5px] font-semibold transition-all duration-300 ${on ? "glass-2 spec text-ink" : "text-faint hover:text-dim"}`}>
+                {m.label}
               </button>
             );
           })}
-          {filters.size > 0 && (
-            <button onClick={() => setFilters(new Set())} className="press shrink-0 rounded-full px-2.5 py-1.5 text-[11px] text-faint hover:text-ink">clear</button>
-          )}
         </div>
+        <button onClick={() => setLiveOnly((v) => !v)}
+          className={`press shrink-0 flex items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-semibold transition-all duration-300 ${liveOnly ? "glass-2 spec halo-long text-long" : "text-faint hover:text-dim"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full transition-colors ${liveOnly ? "bg-long soft-pulse" : "bg-faint/60"}`} />In a trade
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">

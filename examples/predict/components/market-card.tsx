@@ -9,13 +9,30 @@
 "use client";
 
 import { useMemo } from "react";
-import { cents, marketForTargetProb } from "@/lib/markets";
+import { cents, priceMarket } from "@/lib/markets";
 import { timeframe, type TimeframeId } from "@/lib/payoff";
 import { fmtPrice } from "@/lib/copy";
 import { TokenIcon } from "./token-icon";
 
 function fmtStrike(n: number): string {
   return n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : n.toFixed(n >= 1 ? 2 : 4);
+}
+
+/** The NO-boundary band per timeframe (sets the knockout → the leverage). */
+const KO_BAND: Record<TimeframeId, number> = { "5m": 0.012, "15m": 0.025, "1h": 0.05 };
+
+/** Round a price UP to a human "nice" number a believable bit above. The distance
+ *  varies per token, so the odds FLOAT — each market gets its own cents — instead
+ *  of every card showing the same solved-for probability. */
+function niceStrikeAbove(price: number): number {
+  if (price <= 0) return 0;
+  const min = price * 1.02;
+  const mag = Math.pow(10, Math.floor(Math.log10(min)));
+  for (const s of [1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 7.5, 8, 9, 10]) {
+    const cand = s * mag;
+    if (cand >= min) return Number(cand.toPrecision(4));
+  }
+  return Number((10 * mag).toPrecision(4));
 }
 
 export function MarketCard({
@@ -29,10 +46,11 @@ export function MarketCard({
   timeframe: TimeframeId;
   onOpen?: () => void;
 }) {
-  const m = useMemo(
-    () => marketForTargetProb({ token, direction: "ABOVE", entry: price, timeframe: tf, targetProb: 0.45 }),
-    [token, price, tf],
-  );
+  const m = useMemo(() => {
+    const strike = niceStrikeAbove(price);
+    const knockoutPrice = price * (1 - KO_BAND[tf]);
+    return priceMarket({ token, direction: "ABOVE", entry: price, strike, knockoutPrice, timeframe: tf });
+  }, [token, price, tf]);
   const yes = cents(m.prob);
   const no = 100 - yes;
 

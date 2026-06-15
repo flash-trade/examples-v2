@@ -65,7 +65,13 @@ function Inner({ owner }: { owner: string | null }) {
     setSession(owner ? loadSession(owner) : null);
   }, [owner]);
   const signer = useMemo(
-    () => (session && anchorWallet ? makeSessionSigner(anchorWallet, session, flash.network) : null),
+    // Authority guard (matches tap-trade app.tsx): during an A→B wallet switch the
+    // `session` state lags `anchorWallet` by one render — never build a signer that
+    // pairs wallet B with wallet A's session token.
+    () =>
+      session && anchorWallet && session.authority === anchorWallet.publicKey.toBase58()
+        ? makeSessionSigner(anchorWallet, session, flash.network)
+        : null,
     [session, anchorWallet],
   );
 

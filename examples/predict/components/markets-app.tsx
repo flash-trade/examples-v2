@@ -19,7 +19,6 @@ import { enableOneClickTrading, type EnableState, type EnableWalletCtx } from "@
 import { depositUsdc, executeWithdrawalStep, withdrawUsdc, type FundsStep } from "@/lib/funds";
 import { flash } from "@/lib/flash";
 import { calmError } from "@/lib/copy";
-import { shortKey } from "@/lib/format";
 import { useBalances, useBasketBalance, useUsdcMint } from "@/lib/hooks";
 import { loadSession, type LoadedSession } from "@/lib/session";
 import { makeSessionSigner } from "@/lib/signer";
@@ -28,7 +27,8 @@ import { useMarketRounds } from "@/lib/use-market-rounds";
 import { Bets } from "./bets";
 import { Discover } from "./discover";
 import { FundsSheet } from "./funds-sheet";
-import { WalletPicker } from "./wallet-picker";
+import { WalletMenu } from "./wallet-menu";
+import { WalletSheet } from "./wallet-sheet";
 
 export function MarketsApp() {
   const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
@@ -84,10 +84,9 @@ function Inner({ owner }: { owner: string | null }) {
   const [note, setNote] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Open the wallet picker — the user chooses ANY installed wallet (no wallet is
-  // hardcoded; selection happens in WalletPicker via Wallet Standard).
+  // Open the wallet sheet — the user chooses ANY installed wallet (no wallet is
+  // hardcoded; selection + the connect ref-dance happen in WalletSheet).
   const connect = useCallback(() => setPickerOpen(true), []);
-  const disconnect = useCallback(() => { void walletCtx.disconnect(); }, [walletCtx]);
 
   // ── funds: deposit/withdraw USDC ↔ basket (ported so /markets is standalone).
   // Withdraw is two-phase by design (request → execute, ~30–90s).
@@ -202,15 +201,7 @@ function Inner({ owner }: { owner: string | null }) {
         </div>
         {owner ? (
           <div className="flex items-center gap-2">
-            {canBet ? (
-              <button
-                onClick={() => setFundsOpen(true)}
-                title="Deposit / withdraw USDC"
-                className="rounded-full bg-white/5 px-3 py-1.5 font-mono text-[11px] tabular-nums text-up transition-colors hover:bg-white/10"
-              >
-                ${(inBasketUsd ?? 0).toFixed(2)} <span className="text-faint">＋</span>
-              </button>
-            ) : (
+            {!canBet && (
               <button
                 onClick={() => void enable()}
                 disabled={enabling}
@@ -219,17 +210,16 @@ function Inner({ owner }: { owner: string | null }) {
                 {enabling ? "enabling…" : "Enable one-tap"}
               </button>
             )}
-            <button
-              onClick={disconnect}
-              title="Disconnect / switch wallet"
-              className="font-mono text-[11px] text-dim transition-colors hover:text-down"
-            >
-              {shortKey(owner)}
-            </button>
+            <WalletMenu
+              owner={owner}
+              walletUsdc={balances.usdc}
+              inBasketUsd={inBasketUsd}
+              onOpenFunds={() => setFundsOpen(true)}
+            />
           </div>
         ) : (
           <button onClick={connect} className="cta-glow-up rounded-full bg-up px-4 py-2 text-[13px] font-bold text-up-deep">
-            Connect
+            Connect Wallet
           </button>
         )}
       </header>
@@ -245,7 +235,7 @@ function Inner({ owner }: { owner: string | null }) {
           void basket.refresh();
         }}
       />
-      {pickerOpen && <WalletPicker onClose={() => setPickerOpen(false)} />}
+      <WalletSheet open={pickerOpen} onClose={() => setPickerOpen(false)} />
       <FundsSheet
         open={fundsOpen}
         busy={fundsBusy}

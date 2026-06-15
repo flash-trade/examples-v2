@@ -65,12 +65,11 @@ const FAR_MOVE_PCT: Record<TimeframeId, number> = { "5m": 1.2, "15m": 2.5, "1h":
  *  floats up to the deepest the timeframe honestly supports). */
 const STRIKE_MOVE_CEIL: Record<TimeframeId, number> = { "5m": 0.15, "15m": 0.35, "1h": 0.75 };
 
-/** The knockout band per timeframe that sets the card headline's leverage
- *  (clamped by the spread constraint and custody caps). */
-const KO_BAND: Record<TimeframeId, number> = { "5m": 0.012, "15m": 0.025, "1h": 0.05 };
-
 /** The default odds ladder — the YES prices we offer per token+timeframe. */
 const DEFAULT_TARGETS = [0.85, 0.7, 0.55, 0.4, 0.25] as const;
+
+/** The probability a card's single headline question targets (then rounded). */
+const HEADLINE_TARGET = 0.58;
 
 export interface MarketConstruction {
   /** perp side expressing YES (ABOVE→LONG, BELOW→SHORT). */
@@ -138,6 +137,16 @@ export function fillEntryFrom(oracle: number, spread: number, direction: Directi
   return direction === "ABOVE" ? oracle * (1 + s) : oracle * (1 - s);
 }
 
+/** The price a position REALIZES when its take-profit triggers at `strike`. The
+ *  exit crosses the spread the OTHER way — a LONG sells at the bid (strike·(1−s)),
+ *  a SHORT buys at the ask (strike·(1+s)) — so the spread is paid AGAIN on exit.
+ *  This is why a take-profit must clear TWO spreads to actually win (verified live:
+ *  a $90 SOL TP exits at $81 and nets ≈ $0). PnL is driven by entryFill→exitFill. */
+export function exitFillFrom(strike: number, spread: number, direction: Direction): number {
+  const s = Math.max(0, spread);
+  return direction === "ABOVE" ? strike * (1 - s) : strike * (1 + s);
+}
+
 /** The highest leverage whose knockout (0.92/L from the fill) still clears the
  *  spread, intersected with the custody cap. Spread-free markets (FX) are capped
  *  only by custody. This is THE constraint that stops an already-liquidated open. */
@@ -176,19 +185,24 @@ export function priceMarket(opts: {
   // Spread invariant enforced HERE: no quoted market can have a knockout inside
   // the spread, even if a caller passes an unclamped leverage.
   const lev = clampLeverage(opts.leverage, spread, Infinity);
-  const fillEntry = oracle > 0 ? fillEntryFrom(oracle, spread, direction) : 0;
+  const entryFill = oracle > 0 ? fillEntryFrom(oracle, spread, direction) : 0;
 
-  // t = favorable move FROM THE FILL to the strike; koDist = adverse move to liq.
-  const t = fillEntry > 0 ? Math.abs(opts.strike - fillEntry) / fillEntry : 0;
+  // The TP triggers at the strike but EXITS through the spread, so PnL is driven
+  // by the entry-fill → exit-fill move — the spread is paid on BOTH legs. t is
+  // that NET favorable move; koDist is the adverse move to liquidation.
+  const exitFill = exitFillFrom(opts.strike, spread, direction);
+  const t = entryFill > 0
+    ? (direction === "ABOVE" ? exitFill / entryFill - 1 : 1 - exitFill / entryFill)
+    : 0;
   const koDist = LIQ_FACTOR / lev;
-  const knockoutPrice = direction === "ABOVE" ? fillEntry * (1 - koDist) : fillEntry * (1 + koDist);
+  const knockoutPrice = direction === "ABOVE" ? entryFill * (1 - koDist) : entryFill * (1 + koDist);
 
   // R = L·t − fees/C = L·(t − fee) (fees scale with size). t ≤ fee ⇒ R floors at 0.
   const payoutMult = Math.max(0, lev * (t - feesRate));
   const prob = clampProb(1 / (1 + payoutMult));
 
   return {
-    token, direction, strike: opts.strike, oracle, entry: fillEntry, spread, timeframe: tf, prob, payoutMult,
+    token, direction, strike: opts.strike, oracle, entry: entryFill, spread, timeframe: tf, prob, payoutMult,
     construction: { side, leverage: lev, takeProfitPrice: opts.strike, knockoutPrice },
   };
 }
@@ -234,8 +248,14 @@ export function marketForTargetProb(opts: {
   // ladder spans by STRIKE). If the ceiling bites, q floats up (honest).
   const t = Math.min(R / leverage + feesRate, STRIKE_MOVE_CEIL[tf]);
 
-  const fillEntry = oracle > 0 ? fillEntryFrom(oracle, spread, direction) : 0;
-  const strike = direction === "ABOVE" ? fillEntry * (1 + t) : fillEntry * (1 - t);
+  const entryFill = oracle > 0 ? fillEntryFrom(oracle, spread, direction) : 0;
+  const sClamp = Math.min(0.99, Math.max(0, spread));
+  // Place the strike so that AFTER the exit spread the NET move is t:
+  //   LONG  exit = strike·(1−s) = entryFill·(1+t) ⇒ strike = entryFill·(1+t)/(1−s)
+  //   SHORT exit = strike·(1+s) = entryFill·(1−t) ⇒ strike = entryFill·(1−t)/(1+s)
+  const strike = direction === "ABOVE"
+    ? (entryFill * (1 + t)) / (1 - sClamp)
+    : (entryFill * (1 - t)) / (1 + sClamp);
   // Re-price from the realized strike + clamped leverage so prob is exact.
   return priceMarket({ token, direction, oracle, spread, leverage, strike, timeframe: tf, feesRate });
 }
@@ -271,23 +291,19 @@ export function strikeLadder(opts: {
 
 // ── the card headline ─────────────────────────────────────────────────────────
 
-/** Round a price UP to a human "nice" number a believable bit above. Basing this
- *  on the FILL (not the oracle) guarantees the strike sits above the entry, so the
- *  headline bet is genuinely winnable. */
-export function niceStrikeAbove(price: number): number {
+/** Round a target strike to a clean, human number CLOSE to it (≈2 significant
+ *  figures) for a card headline — close enough that the re-priced odds stay near
+ *  the target, clean enough to read as a real question ("Will SOL hit $100?").
+ *  Coarse "next nice number up" rounding overshot a 58¢ target to a 30¢ long-shot. */
+function roundStrikeNice(price: number): number {
   if (!(price > 0)) return 0;
-  const min = price * 1.02;
-  const mag = Math.pow(10, Math.floor(Math.log10(min)));
-  for (const s of [1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 7.5, 8, 9, 10]) {
-    const cand = s * mag;
-    if (cand >= min) return Number(cand.toPrecision(4));
-  }
-  return Number((10 * mag).toPrecision(4));
+  return Number(price.toPrecision(price >= 1 ? 2 : 3));
 }
 
-/** The single "climb above" headline a card shows: a nice strike above the fill,
- *  priced through the live spread at the timeframe's (clamped) leverage. Each
- *  token's own spread + caps make the cents FLOAT — no two markets read alike. */
+/** The single "climb above" headline a card shows. Targets a believable headline
+ *  probability through the corrected (two-spread) solver, then rounds the strike
+ *  to a human number and RE-PRICES so the cents stay honest for the rounded
+ *  strike. Each token's own spread + caps make the cents FLOAT — no two alike. */
 export function headlineMarket(opts: {
   token: string;
   oracle: number;
@@ -298,13 +314,15 @@ export function headlineMarket(opts: {
   direction?: Direction;
 }): PricedMarket {
   const direction = opts.direction ?? "ABOVE";
-  const floor = Math.max(1.1, opts.minLeverage ?? 1.1);
-  const fillEntry = opts.oracle > 0 ? fillEntryFrom(opts.oracle, opts.spread, direction) : 0;
-  const strike = direction === "ABOVE" ? niceStrikeAbove(fillEntry) : fillEntry * (1 - KO_BAND[opts.timeframe]);
-  const leverage = clampLeverage(LIQ_FACTOR / KO_BAND[opts.timeframe], opts.spread, opts.maxLeverage, floor);
+  const target = marketForTargetProb({
+    token: opts.token, direction, oracle: opts.oracle, spread: opts.spread,
+    maxLeverage: opts.maxLeverage, minLeverage: opts.minLeverage,
+    timeframe: opts.timeframe, targetProb: HEADLINE_TARGET,
+  });
+  const strike = direction === "ABOVE" ? roundStrikeNice(target.strike) : target.strike;
   return priceMarket({
     token: opts.token, direction, oracle: opts.oracle, spread: opts.spread,
-    leverage, strike, timeframe: opts.timeframe,
+    leverage: target.construction.leverage, strike, timeframe: opts.timeframe,
   });
 }
 

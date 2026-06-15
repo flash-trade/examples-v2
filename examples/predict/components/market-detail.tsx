@@ -14,8 +14,8 @@
 
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { assertNoErr } from "flash-v2";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { assertNoErr, validateTriggerPrice, type OpenPositionResponse } from "flash-v2";
 import {
   bucketMarket,
   cents,
@@ -28,7 +28,7 @@ import {
 } from "@/lib/markets";
 import { useMarketLimits } from "@/lib/hooks";
 import { timeframe, type TimeframeId } from "@/lib/payoff";
-import { fmtPrice } from "@/lib/copy";
+import { calmError, fmtPrice } from "@/lib/copy";
 import { flash } from "@/lib/flash";
 import type { ActiveSigner } from "@/lib/signer";
 import { TokenIcon } from "./token-icon";
@@ -41,6 +41,59 @@ const fmtStrike = (n: number) => (n >= 1000 ? n.toLocaleString(undefined, { maxi
 /** Five bucket edges around the live price (±0.5% / ±1.5%) → six outcomes. */
 function defaultEdges(price: number): number[] {
   return [0.985, 0.995, 1.005, 1.015].map((m) => price * m);
+}
+
+/** The bet reconciled to the SIGNED response — the authoritative numbers the user
+ *  actually signs, never the pre-trade estimate. `ok:false` blocks the commit. */
+interface ReconciledBet {
+  ok: boolean;
+  reason?: string;
+  /** real fill entry from the venue. */
+  entry: number;
+  /** price the take-profit actually fires at. */
+  tpExit: number;
+  /** profit the API computes for the TP ON THIS FILL (the spread guard). */
+  profitUsd: number;
+  toWinUsd: number;
+  maxLossUsd: number;
+  entryFeeUsd: number;
+  liq: number;
+}
+
+/** Reconcile an open-position response against the market we meant to back, and
+ *  decide whether it can honestly be signed. THREE gates, all from the real fill:
+ *    (a) the strike is a valid TP trigger vs the real entry (else on-chain 6057) — fix #4
+ *    (b) the venue actually priced a take-profit
+ *    (c) THE SPREAD GUARD: the TP nets a profit > 0. profit ≤ 0 means the strike
+ *        landed inside the spread and would fire as a ~100% LOSS — the exact bug
+ *        the v2.1 redesign exists to kill. The user can never sign through it. */
+function reconcileBet(res: OpenPositionResponse, m: PricedMarket, stakeUsd: number): ReconciledBet {
+  const side = m.construction.side;
+  const entry = Number(res.newEntryPrice) || 0;
+  const liq = Number(res.newLiquidationPrice) || 0;
+  const entryFeeUsd = Number(res.entryFee) || 0;
+  const tp = res.takeProfitQuote;
+  // The venue's OWN profit-at-TP on the real fill — ground truth. The spread is
+  // paid on BOTH legs, so this already nets the exit spread (a TP inside the
+  // round-trip spread reports ≤ 0). Never trust local math over this number.
+  const realProfitUsd = tp ? Number(tp.profitUsdUi) || 0 : 0;
+  const tpExit = tp ? Number(tp.exitPriceUi) || 0 : 0;
+  const base = { entry, tpExit, profitUsd: realProfitUsd, toWinUsd: stakeUsd + Math.max(0, realProfitUsd), maxLossUsd: stakeUsd, entryFeeUsd, liq };
+
+  const valid = validateTriggerPrice({ side, kind: "tp", price: m.construction.takeProfitPrice, markPrice: entry });
+  if (!valid.ok) return { ...base, ok: false, reason: "This strike isn't beyond the live fill, so the bet can't pay out. Pick a farther strike." };
+  if (!tp) return { ...base, ok: false, reason: "Couldn't price the take-profit on this fill. Try again in a moment." };
+  // THE SPREAD GUARD: on the real round-trip the TP must net a profit, else the
+  // move is inside the (two-leg) spread and would fire as a loss.
+  if (realProfitUsd <= 0) return { ...base, ok: false, reason: "On the live fill this bet can't win right now — the move is inside the spread. Try a farther strike or another market." };
+  // DIVERGENCE GUARD: the live payout must be close to the odds we displayed.
+  // A big shortfall (stale browse price / model drift) blocks rather than let the
+  // user sign a bet materially worse than advertised.
+  const shownProfit = profitUsd(stakeUsd, m.prob);
+  if (shownProfit > 0 && realProfitUsd < shownProfit * 0.6) {
+    return { ...base, ok: false, reason: `The live payout dropped to about ${fmtUsd(base.toWinUsd)} (we showed ~${fmtUsd(stakeUsd + shownProfit)}). Re-review or pick another strike.` };
+  }
+  return { ...base, ok: true };
 }
 
 export function MarketDetail({
@@ -98,41 +151,81 @@ export function MarketDetail({
   const tooSmall = stakeUsd > 0 && stakeUsd < MIN_STAKE;
   const yesCents = active ? cents(active.prob) : 0;
 
-  const [placing, setPlacing] = useState(false);
+  type Phase = "idle" | "quoting" | "review" | "signing";
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [review, setReview] = useState<ReconciledBet | null>(null);
+  const [ticketError, setTicketError] = useState<string | null>(null);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // ── place a real bet: a capped-loss perp with the bundled take-profit AT the
-  // strike (the win boundary); the liquidation is the knockout (lose your stake).
-  // Slippage clears the live spread (a hardcoded 1% would reject a 5–10% fill).
-  // NOTE: signed-fill reconciliation + the two-step commit land in fix #3; the
-  // trigger-price validation in fix #4. Until then the "don't trade" banner holds.
-  const place = useCallback(async () => {
-    if (!active || !signer) return;
-    setPlacing(true);
+  // Any change to the bet (strike, side, stake) invalidates a pending review —
+  // you can only sign numbers you just reviewed.
+  useEffect(() => {
+    setPhase((p) => (p === "quoting" || p === "signing" ? p : "idle"));
+    setReview(null);
+  }, [active, stakeUsd]);
+
+  // The openPosition request — IDENTICAL for the review quote and the signed
+  // commit, so the numbers you review are the numbers you sign. Slippage clears
+  // the live spread; the take-profit IS the YES win (= the strike).
+  const reqFor = useCallback(
+    (m: PricedMarket) => ({
+      inputTokenSymbol: "USDC",
+      outputTokenSymbol: m.token,
+      inputAmountUi: stakeUsd.toFixed(2),
+      leverage: Number(m.construction.leverage.toFixed(4)),
+      tradeType: m.construction.side,
+      slippagePercentage: slippageForSpread(m.spread),
+      takeProfit: m.construction.takeProfitPrice.toFixed(4),
+    }),
+    [stakeUsd],
+  );
+
+  // STEP 1 — review: quote the REAL fill (no owner = no tx), reconcile, and BLOCK
+  // if the take-profit can't pay out on this fill. The user never reaches a sign
+  // prompt for a bet that's a loss by construction.
+  const doReview = useCallback(async () => {
+    if (!active) return;
+    setTicketError(null);
     setResult(null);
+    setPhase("quoting");
     try {
-      const res = await flash.openPosition({
-        inputTokenSymbol: "USDC",
-        outputTokenSymbol: active.token,
-        inputAmountUi: stakeUsd.toFixed(2),
-        leverage: Number(active.construction.leverage.toFixed(4)),
-        tradeType: active.construction.side,
-        slippagePercentage: slippageForSpread(active.spread),
-        takeProfit: active.construction.takeProfitPrice.toFixed(4),
-        owner: signer.owner,
-        ...signer.tradeFields,
-      });
+      const res = await flash.openPosition(reqFor(active));
+      assertNoErr("open-position quote", res);
+      setReview(reconcileBet(res, active, stakeUsd));
+      setPhase("review");
+    } catch (e) {
+      setTicketError(calmError(e));
+      setPhase("idle");
+    }
+  }, [active, reqFor, stakeUsd]);
+
+  // STEP 2 — confirm: re-quote WITH owner (the price may have moved since review),
+  // re-run the same reconciliation, and only sign + send if it STILL passes. A
+  // re-quote that went bad bumps back to the review with the new reason.
+  const doConfirm = useCallback(async () => {
+    if (!active || !signer) return;
+    setPhase("signing");
+    setTicketError(null);
+    try {
+      const res = await flash.openPosition({ ...reqFor(active), owner: signer.owner, ...signer.tradeFields });
       assertNoErr("open-position", res);
+      const recon = reconcileBet(res, active, stakeUsd);
+      if (!recon.ok) {
+        setReview(recon);
+        setPhase("review");
+        return;
+      }
       if (!res.transactionBase64) throw new Error(res.err ?? "no transaction returned");
       const sent = await signer.sendTrade(res.transactionBase64);
       setResult({ ok: true, msg: `Bet placed · ${sent.signature.slice(0, 8)}…` });
+      setReview(null);
+      setPhase("idle");
       onPlaced?.();
     } catch (e) {
-      setResult({ ok: false, msg: (e as Error).message });
-    } finally {
-      setPlacing(false);
+      setTicketError(calmError(e));
+      setPhase("review");
     }
-  }, [active, signer, stakeUsd, onPlaced]);
+  }, [active, signer, reqFor, stakeUsd, onPlaced]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
@@ -226,21 +319,56 @@ export function MarketDetail({
                   <Stat label="max loss" value={`−${fmtUsd(stakeUsd)}`} tone="down" />
                 </div>
 
-                <button
-                  onClick={() => (canBet ? void place() : onNeedWallet?.())}
-                  disabled={placing || (canBet && (stakeUsd <= 0 || tooSmall))}
-                  className={`rounded-[12px] py-3 text-[14px] font-bold transition-transform active:scale-[0.99] disabled:opacity-50 ${dir === "ABOVE" ? "cta-glow-up bg-up text-up-deep" : "cta-glow-down bg-down text-down-deep"}`}
-                >
-                  {placing
-                    ? "Placing…"
-                    : !canBet
-                      ? "Connect & enable to bet"
-                      : tooSmall
-                        ? `Stake at least $${MIN_STAKE}`
-                        : `Back ${dir === "ABOVE" ? "Above" : "Below"} · ${yesCents}¢`}
-                </button>
-                {result && (
-                  <p className={`text-center font-mono text-[11px] tabular-nums ${result.ok ? "text-up" : "text-down"}`}>{result.msg}</p>
+                {(phase === "review" || phase === "signing") && review ? (
+                  <div className="flex flex-col gap-2.5">
+                    {/* RECONCILED to the signed fill — the numbers you actually sign */}
+                    <div className="flex flex-col gap-1.5 rounded-[12px] border border-edge px-3.5 py-3">
+                      <ReconRow k="fills at" v={fmtStrike(review.entry)} />
+                      <ReconRow k="wins at" v={fmtStrike(review.tpExit)} />
+                      <ReconRow k="to win" v={fmtUsd(review.toWinUsd)} tone={review.ok ? "up" : undefined} />
+                      <ReconRow k="profit" v={`${review.profitUsd >= 0 ? "+" : "−"}${fmtUsd(Math.abs(review.profitUsd))}`} tone={review.profitUsd > 0 ? "up" : "down"} />
+                      <ReconRow k="max loss" v={`−${fmtUsd(review.maxLossUsd)}`} tone="down" />
+                      <ReconRow k="entry fee" v={fmtUsd(review.entryFeeUsd)} />
+                    </div>
+                    {!review.ok && <p className="text-center font-mono text-[11px] leading-relaxed text-down">{review.reason}</p>}
+                    {ticketError && <p className="text-center font-mono text-[11px] text-down">{ticketError}</p>}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setPhase("idle"); setReview(null); }}
+                        disabled={phase === "signing"}
+                        className="rounded-[12px] bg-white/5 px-4 py-3 text-[13px] font-semibold text-dim hover:text-ink disabled:opacity-50"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => void doConfirm()}
+                        disabled={!review.ok || phase === "signing" || !signer}
+                        className={`flex-1 rounded-[12px] py-3 text-[14px] font-bold transition-transform active:scale-[0.99] disabled:opacity-50 ${dir === "ABOVE" ? "cta-glow-up bg-up text-up-deep" : "cta-glow-down bg-down text-down-deep"}`}
+                      >
+                        {phase === "signing" ? "Signing…" : review.ok ? `Confirm · ${yesCents}¢` : "Can't win now"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => (canBet ? void doReview() : onNeedWallet?.())}
+                      disabled={phase === "quoting" || (canBet && (stakeUsd <= 0 || tooSmall))}
+                      className={`rounded-[12px] py-3 text-[14px] font-bold transition-transform active:scale-[0.99] disabled:opacity-50 ${dir === "ABOVE" ? "cta-glow-up bg-up text-up-deep" : "cta-glow-down bg-down text-down-deep"}`}
+                    >
+                      {phase === "quoting"
+                        ? "Pricing…"
+                        : !canBet
+                          ? "Connect & enable to bet"
+                          : tooSmall
+                            ? `Stake at least $${MIN_STAKE}`
+                            : `Review ${dir === "ABOVE" ? "Above" : "Below"} · ${yesCents}¢`}
+                    </button>
+                    {result && (
+                      <p className={`text-center font-mono text-[11px] tabular-nums ${result.ok ? "text-up" : "text-down"}`}>{result.msg}</p>
+                    )}
+                    {ticketError && <p className="text-center font-mono text-[11px] text-down">{ticketError}</p>}
+                  </>
                 )}
                 <p className="text-center font-mono text-[10px] leading-relaxed text-faint">
                   Odds are formula-set on a real capped-loss position. You can never lose more than your stake.
@@ -259,6 +387,15 @@ function Stat({ label, value, tone }: { label: string; value: string; tone: "up"
     <div className="rounded-[10px] bg-white/[0.03] px-2 py-2">
       <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-faint">{label}</p>
       <p className={`mt-0.5 font-mono text-[14px] font-bold tabular-nums ${tone === "up" ? "text-up" : "text-down"}`}>{value}</p>
+    </div>
+  );
+}
+
+function ReconRow({ k, v, tone }: { k: string; v: string; tone?: "up" | "down" }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="font-mono text-[11px] text-faint">{k}</span>
+      <span className={`font-mono text-[12px] font-semibold tabular-nums ${tone === "up" ? "text-up" : tone === "down" ? "text-down" : "text-ink"}`}>{v}</span>
     </div>
   );
 }

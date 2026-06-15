@@ -75,19 +75,23 @@ Keep the existing "Void Instrument / frosted glass" base (`globals.css`, `DESIGN
 
 The 3-reviewer money-path audit (2026-06-15) found the v2 engine **funds-loss-grade broken**: it modeled cost as a 0.16% fee and **ignored the real 5–10% Flash trade spread**, so the bundled take-profit landed *inside* the spread and fired as a ~100% loss on SOL (live `pnlPercentage: −100`), leverage was never clamped (SOL opened at 100× already-liquidated), and nothing was reconciled to the signed fill. Decision: **keep the true fixed-odds binary (Path A), corrected for the spread.** `$11` floor is correct here — a bundled TP needs `> $10` collateral after fees (`guards.ts`: `MIN_COLLATERAL_USD_AFTER_FEES=10`, `RECOMMENDED_MIN_COLLATERAL_USD=11`). (A bare open's floor is ~$5, but our win = a bundled TP, so $11 stands.)
 
-### The corrected construction (the entry is the FILL, not the oracle)
+### The corrected construction — the spread is paid on BOTH legs (EMPIRICALLY corrected 2026-06-15)
 
-A LONG fills at `fillEntry = oracle·(1+s)`; a SHORT at `oracle·(1−s)`, where `s = tradeSpread` (live, per market, from `useMarketLimits` — SOL≈0.10, BTC/ETH≈0.05). **Everything is measured from `fillEntry`, never the oracle:**
+A LONG fills at `entryFill = oracle·(1+s)`; a SHORT at `oracle·(1−s)`, where `s = tradeSpread` (live, per market, from `useMarketLimits` — SOL≈0.10, BTC/ETH≈0.05).
+
+**Implementation discovery (live probe, read-only quote):** the v2.1 math above was STILL incomplete — it only charged the spread on ENTRY. The live API charges it AGAIN on exit: a take-profit triggering at price `K` *exits* at `K·(1∓s)` (a LONG sells back at the bid). Proof: a $90 SOL TP returned `exitPriceUi=$81` (=90×0.9) and `profitUsdUi≈$0` — break-even, not the 59¢ winner the entry-only math claimed. **A take-profit must clear TWO spreads to win.** The corrected, live-matched construction:
 
 ```
-fillEntry = oracle·(1 ± s)                       # + for ABOVE/LONG, − for BELOW/SHORT
-strike    = fillEntry·(1 ± t)                    # the TP, set BEYOND the fill by t  (the win)
-knockout  = fillEntry·(1 ∓ 0.92/L)               # liquidation (the loss)
-R         = L·(t − fee)        q = 1/(1+R)        # t is the move FROM THE FILL; q honest
+entryFill = oracle·(1 ± s)                        # + ABOVE/LONG, − BELOW/SHORT  (pay the spread on entry)
+exitFill  = strike·(1 ∓ s)                         # the TP EXITS through the spread too  (pay it again)
+t         = exitFill/entryFill − 1   (LONG)        # the NET move that drives PnL (∓ mirrored for SHORT)
+strike    = entryFill·(1 ± t)/(1 ∓ s)             # ⇒ gross the strike UP by 1/(1−s) so net move = t
+knockout  = entryFill·(1 ∓ 0.92/L)                # liquidation (the loss); builder's liq is degenerate
+R         = L·(t − fee)        q = 1/(1+R)         # q now matches the venue's real payout
 to-win    = stake/q            max-loss = stake
 ```
 
-Because the strike is `fillEntry·(1+t)`, on SOL it sits `≈ s+t ≈ 12%+` above the oracle — honest (the bet truly needs a big move), and **long-shot-only on high-spread tokens, exactly as accepted.**
+Break-even (LONG) is `strike = oracle·(1+s)/(1−s)` ≈ ×1.222 on SOL — so a genuine 58¢ SOL headline strike sits at ≈ `$100` when the oracle is `$74` (oracle×1.36), and the bet truly needs a big move. **Verified live end-to-end:** across the SOL and BTC headline + full ladder, the engine's shown to-win matches the API's `takeProfitQuote` to within 3%. The commit-gate reconcile (#3) is the backstop — it reads the venue's own `profitUsdUi` and blocks if the real payout diverges from what was shown.
 
 ### The new hard constraint: the knockout must sit BEYOND the spread
 
@@ -103,7 +107,7 @@ SOL (s=0.10) ⇒ `L ≤ 0.92/0.15 ≈ 6×`. High-spread markets are naturally lo
 
 1. **Engine spread-aware** (`lib/markets.ts`): `priceMarket`/`marketForTargetProb`/`strikeLadder`/`bucketMarket` take `oracle` + `spread` + `maxLeverage`; compute from `fillEntry`; clamp `L` by the constraint above; the `Market` carries `oracle` (display) and `entry`=`fillEntry`. **Fixes CRIT-1, CRIT-2, HIGH-4.**
 2. **Wire live spread + caps**: card/detail call `useMarketLimits(token)` → pass `tradeSpread` + `maxLeverage` into the engine. No market is built before limits load (gate the ticket).
-3. **Reconcile to the signed fill** (`place()`): after `openPosition`, build `lockedQuoteFrom(res,…)`, render the REAL entry/liq/TP/fee, and **block the send / show the result** if `takeProfitQuote.profitUsdUi ≤ 0` or liq is on the wrong side. Re-quote at the commit gate (two-step like `app.tsx doReview→doConfirm`). **Fixes CRIT-3, MEDIUM (stale price).**
+3. **Reconcile to the signed fill** (two-step review→confirm): quote the REAL fill, render the venue's own numbers, and **block the commit** if (a) the strike fails `validateTriggerPrice` vs the real entry, (b) the API returns no `takeProfitQuote`, (c) `takeProfitQuote.profitUsdUi ≤ 0` (TP inside the round-trip spread → fires as a loss), or (d) the live payout falls below 60% of the shown odds (stale-price / model-drift divergence guard). Re-quote + re-check at confirm (two-step like `app.tsx doReview→doConfirm`). The venue's `profitUsdUi` is ground truth — never trust local math over it. **Fixes CRIT-3, MEDIUM (stale price).**
 4. **Validate the TP**: call `guards.validateTriggerPrice({side, kind:"tp", price:strike, markPrice:fillEntry})` before sending; refuse on `!ok` (avoids on-chain `6057`).
 5. **Settlement + expiry** (port `lib/rounds.ts`): record a `Round{…expiresAt}` on a confirmed send; run the reconcile/settle watcher; close at expiry by mark (`inputUsdUi:"0"`) for the between-barrier case. Render a **/markets-specific** disclosure (don't inherit Updown's). **Fixes HIGH-5.**
 6. **Gates + errors**: `canBet` floor → `MIN_STAKE` (11); add `stake > balance` block; double-submit guard (in-flight set keyed by owner|market|side, re-check live balance); route `place()`/`enable()` errors through `calmError`; surface the real `enable` step error. **Fixes C3, H1, H2, M1.**

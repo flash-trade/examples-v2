@@ -71,6 +71,48 @@ Keep the existing "Void Instrument / frosted glass" base (`globals.css`, `DESIGN
 5. **Portfolio + settlement** — shares with live value, history, the welcome-back settle adapted to win/lose framing.
 6. **Disclosure + polish** — the honest "how odds are set" disclosure; the premium pass; `typecheck` + `build` green; adversarial review.
 
+## v2.1 REDESIGN — Path A, spread-aware (supersedes the engine math above)
+
+The 3-reviewer money-path audit (2026-06-15) found the v2 engine **funds-loss-grade broken**: it modeled cost as a 0.16% fee and **ignored the real 5–10% Flash trade spread**, so the bundled take-profit landed *inside* the spread and fired as a ~100% loss on SOL (live `pnlPercentage: −100`), leverage was never clamped (SOL opened at 100× already-liquidated), and nothing was reconciled to the signed fill. Decision: **keep the true fixed-odds binary (Path A), corrected for the spread.** `$11` floor is correct here — a bundled TP needs `> $10` collateral after fees (`guards.ts`: `MIN_COLLATERAL_USD_AFTER_FEES=10`, `RECOMMENDED_MIN_COLLATERAL_USD=11`). (A bare open's floor is ~$5, but our win = a bundled TP, so $11 stands.)
+
+### The corrected construction (the entry is the FILL, not the oracle)
+
+A LONG fills at `fillEntry = oracle·(1+s)`; a SHORT at `oracle·(1−s)`, where `s = tradeSpread` (live, per market, from `useMarketLimits` — SOL≈0.10, BTC/ETH≈0.05). **Everything is measured from `fillEntry`, never the oracle:**
+
+```
+fillEntry = oracle·(1 ± s)                       # + for ABOVE/LONG, − for BELOW/SHORT
+strike    = fillEntry·(1 ± t)                    # the TP, set BEYOND the fill by t  (the win)
+knockout  = fillEntry·(1 ∓ 0.92/L)               # liquidation (the loss)
+R         = L·(t − fee)        q = 1/(1+R)        # t is the move FROM THE FILL; q honest
+to-win    = stake/q            max-loss = stake
+```
+
+Because the strike is `fillEntry·(1+t)`, on SOL it sits `≈ s+t ≈ 12%+` above the oracle — honest (the bet truly needs a big move), and **long-shot-only on high-spread tokens, exactly as accepted.**
+
+### The new hard constraint: the knockout must sit BEYOND the spread
+
+At high L, `koDist = 0.92/L` can be smaller than `s` → the position opens already past liquidation (CRIT-2). So clamp:
+
+```
+L_max = min( custody.maxLeverage ,  0.92 / (s · KO_MARGIN) )     # KO_MARGIN ≈ 1.5
+```
+
+SOL (s=0.10) ⇒ `L ≤ 0.92/0.15 ≈ 6×`. High-spread markets are naturally low-leverage (correct). The ladder must only offer odds achievable within `L_max` at a believable strike; deeper long-shots simply aren't available on high-spread tokens (show them honestly or omit).
+
+### The fix list (every CRITICAL/HIGH from the audit), in order
+
+1. **Engine spread-aware** (`lib/markets.ts`): `priceMarket`/`marketForTargetProb`/`strikeLadder`/`bucketMarket` take `oracle` + `spread` + `maxLeverage`; compute from `fillEntry`; clamp `L` by the constraint above; the `Market` carries `oracle` (display) and `entry`=`fillEntry`. **Fixes CRIT-1, CRIT-2, HIGH-4.**
+2. **Wire live spread + caps**: card/detail call `useMarketLimits(token)` → pass `tradeSpread` + `maxLeverage` into the engine. No market is built before limits load (gate the ticket).
+3. **Reconcile to the signed fill** (`place()`): after `openPosition`, build `lockedQuoteFrom(res,…)`, render the REAL entry/liq/TP/fee, and **block the send / show the result** if `takeProfitQuote.profitUsdUi ≤ 0` or liq is on the wrong side. Re-quote at the commit gate (two-step like `app.tsx doReview→doConfirm`). **Fixes CRIT-3, MEDIUM (stale price).**
+4. **Validate the TP**: call `guards.validateTriggerPrice({side, kind:"tp", price:strike, markPrice:fillEntry})` before sending; refuse on `!ok` (avoids on-chain `6057`).
+5. **Settlement + expiry** (port `lib/rounds.ts`): record a `Round{…expiresAt}` on a confirmed send; run the reconcile/settle watcher; close at expiry by mark (`inputUsdUi:"0"`) for the between-barrier case. Render a **/markets-specific** disclosure (don't inherit Updown's). **Fixes HIGH-5.**
+6. **Gates + errors**: `canBet` floor → `MIN_STAKE` (11); add `stake > balance` block; double-submit guard (in-flight set keyed by owner|market|side, re-check live balance); route `place()`/`enable()` errors through `calmError`; surface the real `enable` step error. **Fixes C3, H1, H2, M1.**
+7. **Buckets**: rebuild as bounded (double-barrier / call-spread) outcomes, or relabel honestly as "chance price *reaches* this zone" and drop the fake normalization. **Fixes HIGH-6.**
+8. **Slippage**: set `slippagePercentage` ≥ the spread (or omit and let the spread price it) — `"1"` is below a 5–10% spread. **Fixes MEDIUM-7.**
+9. Guard degenerate inputs (`oracle ≤ 0`, `t ≤ s+fee`). **Fixes LOW-8.**
+
+**Re-run the 3-agent adversarial review before flipping the "don't trade real funds" banner.**
+
 ## Verification bar (every phase)
 
 `bun run --cwd examples/predict typecheck` and `build` must stay green. Mainnet, real funds — no shortcuts. Adversarial review before anything is called done.

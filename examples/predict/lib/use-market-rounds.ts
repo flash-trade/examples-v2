@@ -118,8 +118,11 @@ export function useMarketRounds(
       // vanished. This also stops a timeout-retry from double-closing (review H2).
       const metrics = snapshot ? positionFor(snapshot, round.market, round.side) : undefined;
       if (!metrics) {
+        // Already gone — don't close nothing. LEAVE the round "active" and let
+        // resolveVanished record the result; if its price fetch fails it stays
+        // "active" so reconcile re-emits it (the retry path needs "active" — a
+        // pre-flip to "closed-elsewhere" would strand it resultless).
         inflight.current.delete(round.id);
-        setRounds((rs) => rs.map((r) => (r.id === round.id ? { ...r, status: "closed-elsewhere" as const } : r)));
         void resolveVanished(round);
         return;
       }
@@ -144,14 +147,11 @@ export function useMarketRounds(
       } catch (e) {
         retryAt.current.set(round.id, Date.now() + SETTLE_RETRY_MS);
         const gone = /Position is empty/i.test(e instanceof Error ? e.message : String(e));
-        if (gone) {
-          // Already closed (TP/liq landed). Flip + SCORE it — never leave a
-          // resultless round that vanishes from the UI (review H4).
-          setRounds((rs) => rs.map((r) => (r.id === round.id ? { ...r, status: "closed-elsewhere" as const } : r)));
-          void resolveVanished(round);
-        } else {
-          setRounds((rs) => withStatus(rs, round.id, "active"));
-        }
+        // Revert to "active" in BOTH cases. If the position is gone, also score it;
+        // keeping it "active" (not "closed-elsewhere") means a failed score-fetch
+        // is re-emitted by reconcile and retried — never stranded resultless (H4).
+        setRounds((rs) => withStatus(rs, round.id, "active"));
+        if (gone) void resolveVanished(round);
       } finally {
         inflight.current.delete(round.id);
       }

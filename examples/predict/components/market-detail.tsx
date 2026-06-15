@@ -14,8 +14,8 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { assertNoErr, validateTriggerPrice, type OpenPositionResponse } from "flash-v2";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { assertNoErr, checkCollateralForTriggers, validateTriggerPrice, type OpenPositionResponse } from "flash-v2";
 import {
   cents,
   profitUsd,
@@ -77,6 +77,11 @@ function reconcileBet(res: OpenPositionResponse, m: PricedMarket, stakeUsd: numb
 
   const valid = validateTriggerPrice({ side, kind: "tp", price: m.construction.takeProfitPrice, markPrice: entry });
   if (!valid.ok) return { ...base, ok: false, reason: "This strike isn't beyond the live fill, so the bet can't pay out. Pick a farther strike." };
+  // On-chain rule: TP/SL/limit need > $10 collateral AFTER entry fees. A stake
+  // whose fee drops it to ≤ $10 opens a perp whose take-profit — the entire win
+  // boundary — silently fails to place. Never sign that (the fee is in hand here).
+  const collat = checkCollateralForTriggers(stakeUsd, entryFeeUsd);
+  if (!collat.ok) return { ...base, ok: false, reason: "Stake too small once fees apply — raise it a little so the take-profit can be placed." };
   if (!tp) return { ...base, ok: false, reason: "Couldn't price the take-profit on this fill. Try again in a moment." };
   // THE SPREAD GUARD: on the real round-trip the TP must net a profit, else the
   // move is inside the (two-leg) spread and would fire as a loss.
@@ -143,6 +148,9 @@ export function MarketDetail({
   const [review, setReview] = useState<ReconciledBet | null>(null);
   const [ticketError, setTicketError] = useState<string | null>(null);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Synchronous re-entrancy lock: React state (phase) updates async, so a fast
+  // double-tap could pass the `phase` guard twice and fire TWO real opens.
+  const sending = useRef(false);
 
   // Any change to the bet (strike, side, stake) invalidates a pending review —
   // you can only sign numbers you just reviewed.
@@ -192,7 +200,8 @@ export function MarketDetail({
   // re-run the same reconciliation, and only sign + send if it STILL passes. A
   // re-quote that went bad bumps back to the review with the new reason.
   const doConfirm = useCallback(async () => {
-    if (!active || !signer || phase === "signing") return; // double-submit guard
+    if (!active || !signer || phase === "signing" || sending.current) return; // double-submit guard
+    sending.current = true;
     setPhase("signing");
     setTicketError(null);
     try {
@@ -229,6 +238,8 @@ export function MarketDetail({
     } catch (e) {
       setTicketError(calmError(e));
       setPhase("review");
+    } finally {
+      sending.current = false;
     }
   }, [active, signer, reqFor, stakeUsd, onPlaced, phase]);
 

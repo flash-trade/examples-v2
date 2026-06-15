@@ -117,6 +117,9 @@ async function loadCustodyPricing(): Promise<Map<string, CustodyPricing> | null>
   custodyInFlight = (async () => {
     try {
       const res = await fetch(`${flash.network.apiBase}/raw/custodies`);
+      // Don't parse a non-OK response (error page / 5xx) into a partial map that
+      // then sticks for the session — bail so the next call retries (review H4).
+      if (!res.ok) return custodyPricing;
       const json = (await res.json()) as
         | Array<{ account?: { tokenMint?: string; pricing?: { minInitialLeverage?: number; maxInitialLeverage?: number; tradeSpreadLong?: number; tradeSpreadShort?: number } } }>
         | { custodies?: unknown };

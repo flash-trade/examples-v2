@@ -199,7 +199,10 @@ export function priceMarket(opts: {
 
   // R = L·t − fees/C = L·(t − fee) (fees scale with size). t ≤ fee ⇒ R floors at 0.
   const payoutMult = Math.max(0, lev * (t - feesRate));
-  const prob = clampProb(1 / (1 + payoutMult));
+  // A non-positive / non-finite oracle is UNPRICEABLE → floor (3¢ "no"), never the
+  // 97¢ ceiling a zero entry would otherwise paint (a broken feed must not read as
+  // a near-certain YES). Live cards also gate on loaded limits + a positive price.
+  const prob = oracle > 0 ? clampProb(1 / (1 + payoutMult)) : PROB_FLOOR;
 
   return {
     token, direction, strike: opts.strike, oracle, entry: entryFill, spread, timeframe: tf, prob, payoutMult,
@@ -326,104 +329,16 @@ export function headlineMarket(opts: {
   });
 }
 
-// ── reach zones ("how far could it move?") ────────────────────────────────────
-// HONEST MODEL (SPEC §v2.1 fix #7): a single capped-loss perp + one take-profit
-// can only express a ONE-TOUCH "does it reach price X", never a true bounded
-// "lands between X and Y" (that needs a call-spread = two positions). So each
-// zone's number is the INDEPENDENT chance price REACHES into it (crosses its near
-// edge). Reaching a far zone implies the nearer ones — the events OVERLAP, they
-// are NOT a partition — so they are NOT normalized and do NOT sum to 100%.
-// Pretending they did was the dishonest part this fix removes.
-
-export interface OutcomeBucket {
-  label: string;
-  /** inclusive lower / exclusive upper price edge; null = open-ended. */
-  lo: number | null;
-  hi: number | null;
-  /** INDEPENDENT one-touch chance price reaches into this zone (NOT normalized;
-   *  zones overlap, so these do not sum to 1). */
-  prob: number;
-  /** the perp that expresses "reaches into this zone" (one-touch to the near edge). */
-  market: PricedMarket;
-}
-
-export interface BucketMarket {
-  token: string;
-  oracle: number;
-  timeframe: TimeframeId;
-  buckets: OutcomeBucket[];
-}
-
-/** Build the reach-zone row by splitting the price axis at `edges` (ascending).
- *  Each zone's probability is the spread-aware ONE-TOUCH chance price reaches into
- *  it (crosses the edge nearest the oracle). NOT normalized — see the note above. */
-export function bucketMarket(opts: {
-  token: string;
-  oracle: number;
-  spread: number;
-  maxLeverage: number;
-  minLeverage?: number;
-  timeframe: TimeframeId;
-  edges: number[];
-}): BucketMarket {
-  const { token, oracle, spread, timeframe: tf } = opts;
-  const floor = Math.max(1.1, opts.minLeverage ?? 1.1);
-  const edges = [...opts.edges].sort((a, b) => a - b);
-  // bucket boundaries: (-∞, e0), [e0, e1), … , [eN, +∞)
-  const bounds: { lo: number | null; hi: number | null }[] = [];
-  bounds.push({ lo: null, hi: edges[0] ?? null });
-  for (let i = 0; i < edges.length - 1; i++) bounds.push({ lo: edges[i]!, hi: edges[i + 1]! });
-  if (edges.length > 0) bounds.push({ lo: edges[edges.length - 1]!, hi: null });
-
-  const raw = bounds.map((b) => {
-    // Which side of the oracle the zone sits on, and the NEAR edge — the threshold
-    // price crosses to reach INTO the zone. One-touch to that edge = the reach.
-    const zoneRef = b.lo == null ? b.hi! : b.hi == null ? b.lo : (b.lo + b.hi) / 2;
-    const direction: Direction = zoneRef >= oracle ? "ABOVE" : "BELOW";
-    const nearEdge = direction === "ABOVE" ? (b.lo ?? b.hi!) : (b.hi ?? b.lo!);
-    const leverage = clampLeverage(LIQ_FACTOR / (FAR_MOVE_PCT[tf] / 100), spread, opts.maxLeverage, floor);
-    const m = priceMarket({ token, direction, oracle, spread, leverage, strike: nearEdge, timeframe: tf });
-    return { b, m };
-  });
-
-  // NO normalization — each is an independent reach chance (the zones overlap).
-  const buckets: OutcomeBucket[] = raw.map(({ b, m }) => ({
-    label: bucketLabel(b.lo, b.hi),
-    lo: b.lo,
-    hi: b.hi,
-    prob: m.prob,
-    market: m,
-  }));
-  return { token, oracle, timeframe: tf, buckets };
-}
-
-function bucketLabel(lo: number | null, hi: number | null): string {
-  const f = (n: number) => (n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : n.toFixed(2));
-  if (lo == null) return `< ${f(hi!)}`;
-  if (hi == null) return `≥ ${f(lo)}`;
-  return `${f(lo)} – ${f(hi)}`;
-}
+// NOTE: multi-outcome "buckets" were REMOVED (SPEC §v2.1 fix #7). A single
+// capped-loss perp + one take-profit can only express a ONE-TOUCH "reaches X",
+// never a bounded "lands between X and Y" (that needs a call-spread = two
+// positions), and the honest one-touch relabel degenerated to 97¢ inside the
+// spread. The strike ladder already gives honest reach-odds. The old bucketMarket
+// / openParamsFor builders were deleted too — they were undefended exported paths
+// that would render a guaranteed-loss strike as 97¢ if re-wired. A future
+// call-spread rebuild is a flagged, user-approved scope item.
 
 // ── the bridge to the trade builder ───────────────────────────────────────────
-
-/** The flash.openPosition params that OPEN a YES position for this market at a
- *  given stake — a capped-loss perp with the bundled take-profit = the strike.
- *  Slippage MUST clear the spread (a fill enters a full spread from the oracle),
- *  so it is derived from the market's spread, never a hardcoded 1%.
- *  (Shape matches OpenPositionRequest; the caller adds owner + session fields.) */
-export function openParamsFor(m: PricedMarket, stakeUsd: number) {
-  return {
-    inputTokenSymbol: "USDC",
-    outputTokenSymbol: m.token,
-    inputAmountUi: stakeUsd.toFixed(2),
-    leverage: Number(m.construction.leverage.toFixed(4)),
-    tradeType: m.construction.side,
-    orderType: "MARKET" as const,
-    slippagePercentage: slippageForSpread(m.spread),
-    // bundled TP = the YES win boundary; the knockout is the native liquidation.
-    takeProfit: m.construction.takeProfitPrice.toFixed(4),
-  };
-}
 
 /** Slippage tolerance that clears the trade spread with headroom. A hardcoded
  *  "1" is far below a 5–10% spread and rejects every fill (SPEC §v2.1 fix #8). */

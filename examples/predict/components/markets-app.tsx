@@ -16,8 +16,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ConnectionProvider, WalletProvider, useAnchorWallet, useWallet } from "@solana/wallet-adapter-react";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
-import { enableOneClickTrading, type EnableWalletCtx } from "@/lib/enable";
+import { enableOneClickTrading, type EnableState, type EnableWalletCtx } from "@/lib/enable";
 import { flash } from "@/lib/flash";
+import { calmError } from "@/lib/copy";
 import { shortKey } from "@/lib/format";
 import { useBalances, useBasketBalance, useUsdcMint } from "@/lib/hooks";
 import { loadSession, type LoadedSession } from "@/lib/session";
@@ -66,8 +67,12 @@ function Inner({ owner }: { owner: string | null }) {
     [session, anchorWallet],
   );
 
+  // "canBet" = wallet connected + one-tap enabled. Whether THIS stake is funded
+  // (≥ MIN_STAKE and ≤ available) is gated per-bet in the ticket against
+  // `availableUsd`, so an enabled-but-underfunded user gets an "add funds"
+  // message on the ticket rather than a dead-end "enable" CTA.
   const basketExists = Boolean(snapshot?.basketPubkey);
-  const canBet = basketExists && Boolean(signer) && (inBasketUsd ?? 0) >= 1;
+  const canBet = basketExists && Boolean(signer);
 
   const [enabling, setEnabling] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -89,25 +94,33 @@ function Inner({ owner }: { owner: string | null }) {
         signTransaction: walletCtx.signTransaction,
         signAllTransactions: walletCtx.signAllTransactions,
       };
+      // Capture the live step state so a failure can name the REAL step error
+      // (already human-phrased upstream) instead of a generic "check your wallet".
+      // A container defeats closure-assignment narrowing.
+      const step: { last: EnableState | null } = { last: null };
       const result = await enableOneClickTrading({
         wallet: ctx,
         anchorWallet,
         snapshot,
         usdcMint,
         balances: { sol: balances.sol, usdc: balances.usdc },
-        onStep: () => {},
+        onStep: (s) => { step.last = s; },
         onLog: () => {},
       });
       if (result.session) setSession(result.session);
       if (!result.ok) {
-        setNote(result.needsUsdc ? "Account ready — deposit USDC on the main app, then bet." : "Couldn't finish enabling — check your wallet.");
+        setNote(
+          result.needsUsdc
+            ? "Account ready — deposit USDC on the main app, then bet."
+            : step.last?.error ?? "Couldn't finish enabling — check your wallet and try again.",
+        );
       } else if (result.needsUsdc) {
         setNote("Deposit USDC on the main app to start betting.");
       }
       void balances.refresh();
       void basket.refresh();
     } catch (e) {
-      setNote((e as Error).message);
+      setNote(calmError(e));
     } finally {
       setEnabling(false);
     }
@@ -148,7 +161,7 @@ function Inner({ owner }: { owner: string | null }) {
       </header>
       {note && <p className="mx-auto max-w-[1100px] px-4 text-center font-mono text-[11px] text-warn sm:px-6">{note}</p>}
       {owner && <Portfolio positions={positions} />}
-      <Discover signer={signer} canBet={canBet} onNeedWallet={onNeedWallet} onPlaced={() => void basket.refresh()} />
+      <Discover signer={signer} canBet={canBet} availableUsd={inBasketUsd} onNeedWallet={onNeedWallet} onPlaced={() => void basket.refresh()} />
     </main>
   );
 }

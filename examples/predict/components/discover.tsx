@@ -18,12 +18,15 @@ import { MarketDetail } from "./market-detail";
 export function Discover({
   signer,
   canBet,
+  availableUsd,
   onNeedWallet,
   onPlaced,
   onOpen,
 }: {
   signer: ActiveSigner | null;
   canBet: boolean;
+  /** USDC available to bet (gates stake ≤ balance in the ticket). */
+  availableUsd: number | null;
   onNeedWallet?: () => void;
   onPlaced?: () => void;
   onOpen?: (token: string, price: number, tf: TimeframeId) => void;
@@ -134,6 +137,7 @@ export function Discover({
           timeframe={selected.tf}
           signer={signer}
           canBet={canBet}
+          availableUsd={availableUsd}
           onClose={() => setSelected(null)}
           onNeedWallet={onNeedWallet}
           onPlaced={onPlaced}

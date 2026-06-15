@@ -102,6 +102,7 @@ export function MarketDetail({
   timeframe: tf,
   signer,
   canBet,
+  availableUsd,
   onClose,
   onNeedWallet,
   onPlaced,
@@ -111,6 +112,8 @@ export function MarketDetail({
   timeframe: TimeframeId;
   signer: ActiveSigner | null;
   canBet: boolean;
+  /** USDC available to bet; null until known. Gates stake ≤ balance. */
+  availableUsd: number | null;
   onClose: () => void;
   onNeedWallet?: () => void;
   onPlaced?: () => void;
@@ -149,6 +152,7 @@ export function MarketDetail({
 
   const stakeUsd = Math.max(0, Number(stake.replace(/[^0-9.]/g, "")) || 0);
   const tooSmall = stakeUsd > 0 && stakeUsd < MIN_STAKE;
+  const tooBig = availableUsd != null && stakeUsd > availableUsd + 1e-9;
   const yesCents = active ? cents(active.prob) : 0;
 
   type Phase = "idle" | "quoting" | "review" | "signing";
@@ -184,7 +188,9 @@ export function MarketDetail({
   // if the take-profit can't pay out on this fill. The user never reaches a sign
   // prompt for a bet that's a loss by construction.
   const doReview = useCallback(async () => {
-    if (!active) return;
+    // Guard: never quote from an in-flight phase or on an invalid/over-balance stake.
+    if (!active || phase === "quoting" || phase === "signing") return;
+    if (stakeUsd <= 0 || stakeUsd < MIN_STAKE || (availableUsd != null && stakeUsd > availableUsd + 1e-9)) return;
     setTicketError(null);
     setResult(null);
     setPhase("quoting");
@@ -197,13 +203,13 @@ export function MarketDetail({
       setTicketError(calmError(e));
       setPhase("idle");
     }
-  }, [active, reqFor, stakeUsd]);
+  }, [active, reqFor, stakeUsd, phase, availableUsd]);
 
   // STEP 2 — confirm: re-quote WITH owner (the price may have moved since review),
   // re-run the same reconciliation, and only sign + send if it STILL passes. A
   // re-quote that went bad bumps back to the review with the new reason.
   const doConfirm = useCallback(async () => {
-    if (!active || !signer) return;
+    if (!active || !signer || phase === "signing") return; // double-submit guard
     setPhase("signing");
     setTicketError(null);
     try {
@@ -225,7 +231,7 @@ export function MarketDetail({
       setTicketError(calmError(e));
       setPhase("review");
     }
-  }, [active, signer, reqFor, stakeUsd, onPlaced]);
+  }, [active, signer, reqFor, stakeUsd, onPlaced, phase]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
@@ -353,7 +359,7 @@ export function MarketDetail({
                   <>
                     <button
                       onClick={() => (canBet ? void doReview() : onNeedWallet?.())}
-                      disabled={phase === "quoting" || (canBet && (stakeUsd <= 0 || tooSmall))}
+                      disabled={phase === "quoting" || (canBet && (stakeUsd <= 0 || tooSmall || tooBig))}
                       className={`rounded-[12px] py-3 text-[14px] font-bold transition-transform active:scale-[0.99] disabled:opacity-50 ${dir === "ABOVE" ? "cta-glow-up bg-up text-up-deep" : "cta-glow-down bg-down text-down-deep"}`}
                     >
                       {phase === "quoting"
@@ -362,7 +368,9 @@ export function MarketDetail({
                           ? "Connect & enable to bet"
                           : tooSmall
                             ? `Stake at least $${MIN_STAKE}`
-                            : `Review ${dir === "ABOVE" ? "Above" : "Below"} · ${yesCents}¢`}
+                            : tooBig
+                              ? "Add funds to bet"
+                              : `Review ${dir === "ABOVE" ? "Above" : "Below"} · ${yesCents}¢`}
                     </button>
                     {result && (
                       <p className={`text-center font-mono text-[11px] tabular-nums ${result.ok ? "text-up" : "text-down"}`}>{result.msg}</p>

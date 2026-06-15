@@ -11,12 +11,14 @@ import { useMemo, useState } from "react";
 import { TIMEFRAMES, type TimeframeId } from "@/lib/payoff";
 import { usePredictMarkets } from "@/lib/use-markets";
 import { MarketCard } from "./market-card";
+import { MarketDetail } from "./market-detail";
 
 export function Discover({ onOpen }: { onOpen?: (token: string, price: number, tf: TimeframeId) => void }) {
   const { rows, categories, loading, error } = usePredictMarkets();
   const [cat, setCat] = useState("All");
   const [tf, setTf] = useState<TimeframeId>("1h");
   const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<{ token: string; price: number; tf: TimeframeId } | null>(null);
 
   const shown = useMemo(
     () =>
@@ -91,7 +93,16 @@ export function Discover({ onOpen }: { onOpen?: (token: string, price: number, t
           <div className="glass col-span-full rounded-[16px] px-4 py-6 text-center text-sm text-faint">No markets match.</div>
         )}
         {shown.map((r) => (
-          <MarketCard key={r.token} token={r.token} price={r.price} timeframe={tf} onOpen={() => onOpen?.(r.token, r.price, tf)} />
+          <MarketCard
+            key={r.token}
+            token={r.token}
+            price={r.price}
+            timeframe={tf}
+            onOpen={() => {
+              setSelected({ token: r.token, price: r.price, tf });
+              onOpen?.(r.token, r.price, tf);
+            }}
+          />
         ))}
       </div>
 
@@ -99,6 +110,15 @@ export function Discover({ onOpen }: { onOpen?: (token: string, price: number, t
         Mainnet · real funds. Odds are set by a formula on a real leveraged position — not a shared-pot market with
         discovered prices. You can never lose more than your stake.
       </p>
+
+      {selected && (
+        <MarketDetail
+          token={selected.token}
+          price={selected.price}
+          timeframe={selected.tf}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </section>
   );
 }

@@ -11,7 +11,8 @@
     "hello": "bun run packages/flash-v2/src/hello.ts",
     "lifecycle": "bun run packages/flash-v2/src/lifecycle.ts",
     "typecheck": "bun run --filter '*' typecheck",
-    "tap-trade": "bun run --cwd examples/tap-trade dev"
+    "tap-trade": "bun run --cwd examples/tap-trade dev",
+    "predict": "bun run --cwd examples/predict dev"
   },
   "engines": {
     "bun": ">=1.1.0"

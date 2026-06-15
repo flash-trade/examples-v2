@@ -1,0 +1,197 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   app/globals.css — the LIQUID GLASS design language for copy-trade.
+   Deep OLED surface lit by a faint mesh of emerald/teal/rose glow orbs; every
+   surface is frosted glass: translucent fill + backdrop blur + a hairline white
+   edge + an inset specular highlight that reads as a beveled top lip. Major
+   containers use the Double-Bezel (an outer tray cradling an inner glass plate,
+   concentric squircle radii). Flash brand survives in the mint LONG / rose SHORT
+   and the gold leaderboard accent. Motion is heavy and springy (one easing).
+   THE HARD PART: blur only on fixed/non-scrolling glass; transform/opacity only.
+   Tailwind v4.
+   ───────────────────────────────────────────────────────────────────────── */
+
+@import "tailwindcss";
+
+@theme {
+  /* ── surface ─────────────────────────────────────────────────────────────── */
+  --color-bg: #060807;            /* near-OLED, faintly green-cold black */
+  --color-bg2: #0a0d0c;           /* lifted base behind glass */
+  --color-ink: #eef2f0;
+  --color-dim: #9aa6a1;
+  --color-faint: #5b655f;
+
+  /* ── semantics (Flash brand) ─────────────────────────────────────────────── */
+  --color-long: #34d399;          /* LONG · live · profit */
+  --color-short: #f43f5e;         /* SHORT · loss */
+  --color-gold: #fbbf24;          /* leaderboard rank · win-rate halo */
+  --color-info: #5b9dff;          /* leader / stream accents */
+  --color-accent: #ffe600;        /* Flash bolt — the logo mark ONLY */
+
+  /* ── glass material ──────────────────────────────────────────────────────── */
+  --glass-fill: rgb(255 255 255 / 0.045);
+  --glass-fill-2: rgb(255 255 255 / 0.075);   /* raised glass (chips, active) */
+  --glass-edge: rgb(255 255 255 / 0.09);      /* the hairline lip */
+  --glass-edge-2: rgb(255 255 255 / 0.16);    /* emphasis lip */
+  --glass-hi: rgb(255 255 255 / 0.14);        /* specular top highlight */
+  --tray: rgb(255 255 255 / 0.03);            /* double-bezel outer tray */
+  --tray-edge: rgb(255 255 255 / 0.06);
+
+  /* flat surface tokens — sheets, inputs, segmented controls (glass-flavored darks) */
+  --color-panel: rgb(255 255 255 / 0.04);
+  --color-panel2: rgb(255 255 255 / 0.08);
+  --color-sheet: #0c100e;
+  --color-edge: rgb(255 255 255 / 0.10);
+  --color-edge2: rgb(255 255 255 / 0.17);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "JetBrains Mono", Consolas, monospace;
+
+  /* the one easing — springy, weighty (Apple-ish) */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+html { background: var(--color-bg); color-scheme: dark; }
+
+/* The lit surface: OLED black under a fixed mesh of soft glow orbs. */
+body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(58% 50% at 16% -4%, rgb(52 211 153 / 0.11), transparent 70%),
+    radial-gradient(46% 42% at 92% 8%, rgb(91 157 255 / 0.08), transparent 70%),
+    radial-gradient(64% 60% at 52% 116%, rgb(244 63 94 / 0.06), transparent 72%),
+    var(--color-bg);
+  background-attachment: fixed;
+  font-feature-settings: "tnum" 1;
+  overscroll-behavior: none;
+}
+
+/* Fixed film-grain — kills banding on the glow gradients. pointer-events none. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection { background: rgb(52 211 153 / 0.22); }
+
+:where(button, a, [role="button"]):focus-visible {
+  outline: 1px solid var(--color-long);
+  outline-offset: 2px;
+}
+:where(input, textarea):focus-visible { outline: none; }
+
+/* ── LIQUID GLASS material ─────────────────────────────────────────────────────
+   .glass: a frosted plate. The inset top highlight is the bevel lip; the ambient
+   drop lifts it off the surface. Apply to NON-scrolling panels only (blur cost). */
+.glass {
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(22px) saturate(155%);
+  backdrop-filter: blur(22px) saturate(155%);
+  border: 1px solid var(--glass-edge);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-hi),
+    inset 0 0 0 1px rgb(255 255 255 / 0.02),
+    0 18px 44px -16px rgb(0 0 0 / 0.66);
+}
+.glass-2 {
+  background: var(--glass-fill-2);
+  -webkit-backdrop-filter: blur(26px) saturate(160%);
+  backdrop-filter: blur(26px) saturate(160%);
+  border: 1px solid var(--glass-edge-2);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-hi),
+    0 14px 34px -14px rgb(0 0 0 / 0.6);
+}
+/* a flat (non-blur) glass for rows inside scrolling lists — cheap, no repaint */
+.glass-flat {
+  background: rgb(255 255 255 / 0.035);
+  border: 1px solid rgb(255 255 255 / 0.06);
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.06);
+}
+
+/* Specular sheen — a glancing top-left light across a glass plate. */
+.spec { position: relative; isolation: isolate; }
+.spec::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(177deg, rgb(255 255 255 / 0.10) 0%, transparent 26%),
+    radial-gradient(120% 80% at 0% 0%, rgb(255 255 255 / 0.06), transparent 42%);
+  mix-blend-mode: screen;
+}
+
+/* Double-bezel: an outer tray cradling a glass plate, concentric radii. */
+.bezel {
+  padding: 5px;
+  border-radius: 26px;
+  background: var(--tray);
+  border: 1px solid var(--tray-edge);
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.05);
+}
+.bezel-r { border-radius: 21px; }     /* the inner plate radius (26 − 5) */
+
+/* tinted glow halos for semantic glass (long/short/gold leader) */
+.halo-long  { box-shadow: inset 0 1px 0 0 var(--glass-hi), 0 0 0 1px rgb(52 211 153 / 0.22), 0 14px 40px -14px rgb(52 211 153 / 0.28); }
+.halo-short { box-shadow: inset 0 1px 0 0 var(--glass-hi), 0 0 0 1px rgb(244 63 94 / 0.22), 0 14px 40px -14px rgb(244 63 94 / 0.28); }
+.halo-gold  { box-shadow: inset 0 1px 0 0 var(--glass-hi), 0 0 0 1px rgb(251 191 36 / 0.30), 0 14px 40px -14px rgb(251 191 36 / 0.26); }
+
+/* ── motion ──────────────────────────────────────────────────────────────── */
+.lift { transition: transform 0.5s var(--ease), box-shadow 0.5s var(--ease); will-change: transform; }
+.lift:hover { transform: translateY(-2px); }
+.press { transition: transform 0.18s var(--ease); }
+.press:active { transform: scale(0.985); }
+
+/* Magnetic CTA — inner icon disc drifts diagonally on hover (button-in-button). */
+.mag .disc { transition: transform 0.45s var(--ease); }
+.mag:hover .disc { transform: translate(2px, -1px) scale(1.06); }
+
+/* Bottom sheets slide on transform; backdrop fades on opacity. */
+.sheet-up { transition: transform 380ms var(--ease); will-change: transform; }
+.backdrop-fade { transition: opacity 240ms ease; }
+
+/* Slot-reel digit columns (RollingNumber) — the signature numeric tick. */
+.reel-col { transition: transform 420ms var(--ease); will-change: transform; }
+
+/* Fill confirmation sweep — celebrates an on-chain mirror confirm (no spinners). */
+@keyframes fill-flash {
+  0%   { filter: brightness(1.4); box-shadow: 0 0 0 0 rgb(52 211 153 / 0); }
+  30%  { box-shadow: 0 0 22px 2px rgb(52 211 153 / 0.22); }
+  100% { filter: brightness(1); box-shadow: 0 0 0 0 rgb(52 211 153 / 0); }
+}
+.fill-flash { animation: fill-flash 0.5s var(--ease); }
+
+/* Live breathing — the stream dot, "mirroring…" states. */
+@keyframes soft-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.soft-pulse { animation: soft-pulse 1.7s ease-in-out infinite; }
+
+/* New rows (leader events, mirrored fills) slide + fade in on state change. */
+@keyframes row-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+.row-in { animation: row-in 0.4s var(--ease); }
+
+/* A glass plate entering (a leader picked, a sheet) — fade-up with a blur lift. */
+@keyframes glass-in { from { opacity: 0; transform: translateY(10px); filter: blur(6px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
+.glass-in { animation: glass-in 0.55s var(--ease); }
+
+/* Shimmer sweep for the live/auto-copy armed state (a moving specular band). */
+@keyframes shimmer { from { transform: translateX(-130%); } to { transform: translateX(130%); } }
+.shimmer { position: relative; overflow: hidden; }
+.shimmer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.10) 50%, transparent 70%);
+  animation: shimmer 2.6s var(--ease) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lift, .press, .mag .disc, .sheet-up, .reel-col, .fill-flash, .soft-pulse,
+  .row-in, .glass-in, .shimmer::before { animation: none !important; transition: none !important; }
+}

@@ -54,7 +54,7 @@ function Shell() {
 function Inner({ owner }: { owner: string | null }) {
   const walletCtx = useWallet();
   const anchorWallet = useAnchorWallet();
-  const { snapshot } = useStream();
+  const { snapshot, refresh: refreshSnapshot } = useStream();
   const usdcMint = useUsdcMint();
   const balances = useBalances(owner, usdcMint);
   const basket = useBasketBalance(owner, snapshot?.basketPubkey ?? null, usdcMint);
@@ -184,6 +184,10 @@ function Inner({ owner }: { owner: string | null }) {
       } else if (result.needsUsdc) {
         setNote("Tap your balance above to deposit USDC and start betting.");
       }
+      // Pull the fresh owner snapshot so the NEW basket lands immediately — this
+      // is what flips basketExists → true so the user gets PAST "Enable one-tap"
+      // (the missing step that left it stuck). Matches tap-trade's doEnable.
+      await refreshSnapshot();
       void balances.refresh();
       void basket.refresh();
     } catch (e) {
@@ -191,7 +195,7 @@ function Inner({ owner }: { owner: string | null }) {
     } finally {
       setEnabling(false);
     }
-  }, [walletCtx, anchorWallet, snapshot, usdcMint, balances, basket, connect]);
+  }, [walletCtx, anchorWallet, snapshot, usdcMint, balances, basket, connect, refreshSnapshot]);
 
   const onNeedWallet = useCallback(() => {
     if (!owner) connect();
@@ -238,6 +242,7 @@ function Inner({ owner }: { owner: string | null }) {
         onNeedWallet={onNeedWallet}
         onPlaced={(round) => {
           addRound(round);
+          void refreshSnapshot(); // surface the new position immediately (Bets + reconcile)
           void basket.refresh();
         }}
       />

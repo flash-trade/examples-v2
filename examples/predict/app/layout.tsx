@@ -15,9 +15,9 @@ const sora = Sora({ subsets: ["latin"], weight: ["400", "500", "600", "700"], va
 const jbMono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500", "700"], variable: "--font-jbmono" });
 
 export const metadata: Metadata = {
-  title: "Updown — pick up or down",
+  title: "predict — what happens next?",
   description:
-    "Pick up or down. Your stake is the most you can lose. Timed price rounds backed by real Flash Trade V2 positions on Solana mainnet.",
+    "Pick a side. Cents are the odds. Your stake is the most you can lose. Markets backed by real Flash Trade V2 positions on Solana mainnet.",
 };
 
 export const viewport: Viewport = {

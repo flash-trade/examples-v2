@@ -1,12 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// app/page.tsx — single route; hands straight off to the client app. All
-// state is browser state by design: wallet, session key, rounds cache.
-// THE HARD PART: nothing — the client boundary is components/app.tsx.
-// GOTCHAS.md → (no API gotchas here) (../../GOTCHAS.md)
+// app/page.tsx — THE app: the prediction market (formerly at /markets). All
+// state is browser state by design: wallet, session key, rounds cache. Connect
+// any installed wallet; browsing is wallet-free.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { App } from "@/components/app";
+import { MarketsApp } from "@/components/markets-app";
 
 export default function Page() {
-  return <App />;
+  return <MarketsApp />;
 }

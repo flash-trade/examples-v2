@@ -1,13 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// components/markets-app.tsx — the prediction-market app shell at /markets.
-// Reuses the SAME proven wiring as the Updown orchestrator (providers → owner
-// stream → session → signer → enable) so a connected + enabled user places REAL
-// bets through MarketDetail. Browsing stays wallet-free; the wallet is asked for
-// only at "back this". Deposits live on the main app for now (phase 5b: bring
-// the funds sheet here + a portfolio of open bets).
+// components/markets-app.tsx — THE app shell, at the root route /. Standalone:
+// providers → owner stream → session → signer → enable → bet → settle, plus its
+// OWN deposit/withdraw (FundsSheet) and an ANY-wallet picker (no wallet is
+// hardcoded). Browsing is wallet-free; the wallet is asked for only at "back
+// this". (The old Updown app + the cross-app shared-position hazard are gone.)
 //
-// ⚠️ Real-funds path — built + compiles, but NOT yet through the mandatory
-// adversarial review (subagents rate-limited). Don't trade real funds until it is.
+// ⚠️ Real-funds path on Solana mainnet. The disclosure stays until the F7 guard +
+// scoring residuals are signed off (SPEC-PREDICT-V2 → v2.1 REVIEW OUTCOME).
 // ─────────────────────────────────────────────────────────────────────────────
 
 "use client";
@@ -17,6 +16,7 @@ import { ConnectionProvider, WalletProvider, useAnchorWallet, useWallet } from "
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
 import { enableOneClickTrading, type EnableState, type EnableWalletCtx } from "@/lib/enable";
+import { depositUsdc, executeWithdrawalStep, withdrawUsdc, type FundsStep } from "@/lib/funds";
 import { flash } from "@/lib/flash";
 import { calmError } from "@/lib/copy";
 import { shortKey } from "@/lib/format";
@@ -27,6 +27,8 @@ import { StreamProvider, useStream } from "@/lib/stream";
 import { useMarketRounds } from "@/lib/use-market-rounds";
 import { Bets } from "./bets";
 import { Discover } from "./discover";
+import { FundsSheet } from "./funds-sheet";
+import { WalletPicker } from "./wallet-picker";
 
 export function MarketsApp() {
   const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
@@ -80,10 +82,66 @@ function Inner({ owner }: { owner: string | null }) {
 
   const [enabling, setEnabling] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  const connect = useCallback(() => {
-    walletCtx.select?.(walletCtx.wallets[0]?.adapter.name ?? null);
-  }, [walletCtx]);
+  // Open the wallet picker — the user chooses ANY installed wallet (no wallet is
+  // hardcoded; selection happens in WalletPicker via Wallet Standard).
+  const connect = useCallback(() => setPickerOpen(true), []);
+  const disconnect = useCallback(() => { void walletCtx.disconnect(); }, [walletCtx]);
+
+  // ── funds: deposit/withdraw USDC ↔ basket (ported so /markets is standalone).
+  // Withdraw is two-phase by design (request → execute, ~30–90s).
+  const [fundsOpen, setFundsOpen] = useState(false);
+  const [fundsStep, setFundsStep] = useState<FundsStep | null>(null);
+  const [executePending, setExecutePending] = useState(false);
+  const [fundsBusy, setFundsBusy] = useState(false);
+
+  const fundsWallet = useMemo<EnableWalletCtx | null>(() => {
+    if (!walletCtx.publicKey || !walletCtx.signTransaction) return null;
+    return {
+      publicKey: walletCtx.publicKey,
+      signTransaction: walletCtx.signTransaction,
+      signAllTransactions: walletCtx.signAllTransactions,
+    };
+  }, [walletCtx.publicKey, walletCtx.signTransaction, walletCtx.signAllTransactions]);
+
+  const doDeposit = useCallback(async (amount: string) => {
+    if (!fundsWallet || !usdcMint) return;
+    setFundsBusy(true);
+    try {
+      const r = await depositUsdc({ wallet: fundsWallet, usdcMint, amount, onStep: setFundsStep, onLog: () => {} });
+      if (!r.ok && r.error) setNote(r.error);
+      await Promise.all([balances.refresh(), basket.refresh()]);
+    } finally {
+      setFundsBusy(false);
+    }
+  }, [fundsWallet, usdcMint, balances, basket]);
+
+  const doWithdraw = useCallback(async (amount: string) => {
+    if (!fundsWallet || !usdcMint) return;
+    setFundsBusy(true);
+    try {
+      const r = await withdrawUsdc({ wallet: fundsWallet, usdcMint, amount, onStep: setFundsStep, onLog: () => {} });
+      setExecutePending(Boolean(r.executePending));
+      if (!r.ok && r.error) setNote(r.error);
+      await Promise.all([balances.refresh(), basket.refresh()]);
+    } finally {
+      setFundsBusy(false);
+    }
+  }, [fundsWallet, usdcMint, balances, basket]);
+
+  const doExecuteWithdraw = useCallback(async () => {
+    if (!fundsWallet || !usdcMint) return;
+    setFundsBusy(true);
+    try {
+      const r = await executeWithdrawalStep({ wallet: fundsWallet, usdcMint, onStep: setFundsStep, onLog: () => {} });
+      setExecutePending(Boolean(r.executePending));
+      if (!r.ok && r.error) setNote(r.error);
+      await Promise.all([balances.refresh(), basket.refresh()]);
+    } finally {
+      setFundsBusy(false);
+    }
+  }, [fundsWallet, usdcMint, balances, basket]);
 
   const enable = useCallback(async () => {
     if (!walletCtx.publicKey || !walletCtx.signTransaction || !anchorWallet) {
@@ -115,11 +173,11 @@ function Inner({ owner }: { owner: string | null }) {
       if (!result.ok) {
         setNote(
           result.needsUsdc
-            ? "Account ready — deposit USDC on the main app, then bet."
+            ? "Account ready — tap your balance above to deposit USDC, then bet."
             : step.last?.error ?? "Couldn't finish enabling — check your wallet and try again.",
         );
       } else if (result.needsUsdc) {
-        setNote("Deposit USDC on the main app to start betting.");
+        setNote("Tap your balance above to deposit USDC and start betting.");
       }
       void balances.refresh();
       void basket.refresh();
@@ -145,7 +203,13 @@ function Inner({ owner }: { owner: string | null }) {
         {owner ? (
           <div className="flex items-center gap-2">
             {canBet ? (
-              <span className="rounded-full bg-white/5 px-3 py-1.5 font-mono text-[11px] tabular-nums text-up">${(inBasketUsd ?? 0).toFixed(2)}</span>
+              <button
+                onClick={() => setFundsOpen(true)}
+                title="Deposit / withdraw USDC"
+                className="rounded-full bg-white/5 px-3 py-1.5 font-mono text-[11px] tabular-nums text-up transition-colors hover:bg-white/10"
+              >
+                ${(inBasketUsd ?? 0).toFixed(2)} <span className="text-faint">＋</span>
+              </button>
             ) : (
               <button
                 onClick={() => void enable()}
@@ -155,7 +219,13 @@ function Inner({ owner }: { owner: string | null }) {
                 {enabling ? "enabling…" : "Enable one-tap"}
               </button>
             )}
-            <span className="font-mono text-[11px] text-dim">{shortKey(owner)}</span>
+            <button
+              onClick={disconnect}
+              title="Disconnect / switch wallet"
+              className="font-mono text-[11px] text-dim transition-colors hover:text-down"
+            >
+              {shortKey(owner)}
+            </button>
           </div>
         ) : (
           <button onClick={connect} className="cta-glow-up rounded-full bg-up px-4 py-2 text-[13px] font-bold text-up-deep">
@@ -174,6 +244,19 @@ function Inner({ owner }: { owner: string | null }) {
           addRound(round);
           void basket.refresh();
         }}
+      />
+      {pickerOpen && <WalletPicker onClose={() => setPickerOpen(false)} />}
+      <FundsSheet
+        open={fundsOpen}
+        busy={fundsBusy}
+        walletUsdc={balances.usdc}
+        inBasketUsd={inBasketUsd}
+        step={fundsStep}
+        executePending={executePending}
+        onDeposit={doDeposit}
+        onWithdraw={doWithdraw}
+        onExecuteWithdraw={doExecuteWithdraw}
+        onClose={() => { setFundsOpen(false); setFundsStep(null); }}
       />
     </main>
   );

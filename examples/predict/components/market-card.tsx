@@ -39,7 +39,7 @@ export function MarketCard({
   return (
     <button
       onClick={onOpen}
-      className="glass group flex w-full flex-col gap-3 rounded-[16px] p-4 text-left transition-transform active:scale-[0.99]"
+      className="glass group flex w-full flex-col gap-3 rounded-[16px] p-4 text-left transition-transform hover:-translate-y-px active:scale-[0.99]"
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">

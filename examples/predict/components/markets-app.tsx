@@ -24,6 +24,7 @@ import { loadSession, type LoadedSession } from "@/lib/session";
 import { makeSessionSigner } from "@/lib/signer";
 import { StreamProvider, useStream } from "@/lib/stream";
 import { Discover } from "./discover";
+import { Portfolio } from "./portfolio";
 
 export function MarketsApp() {
   const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
@@ -54,6 +55,7 @@ function Inner({ owner }: { owner: string | null }) {
   const balances = useBalances(owner, usdcMint);
   const basket = useBasketBalance(owner, snapshot?.basketPubkey ?? null, usdcMint);
   const inBasketUsd = basket.bal?.inBasketUsd ?? null;
+  const positions = useMemo(() => Object.values(snapshot?.positionMetrics ?? {}), [snapshot]);
 
   const [session, setSession] = useState<LoadedSession | null>(null);
   useEffect(() => {
@@ -145,6 +147,7 @@ function Inner({ owner }: { owner: string | null }) {
         )}
       </header>
       {note && <p className="mx-auto max-w-[1100px] px-4 text-center font-mono text-[11px] text-warn sm:px-6">{note}</p>}
+      {owner && <Portfolio positions={positions} />}
       <Discover signer={signer} canBet={canBet} onNeedWallet={onNeedWallet} onPlaced={() => void basket.refresh()} />
     </main>
   );

@@ -326,20 +326,24 @@ export function headlineMarket(opts: {
   });
 }
 
-// ── multi-outcome buckets ("where does it land?") ─────────────────────────────
-// NOTE: spread-aware port. The OUTCOME SEMANTICS (true bounded buckets vs. a
-// one-touch proxy) are redesigned in SPEC §v2.1 fix #7; this keeps the existing
-// shape but prices every bucket through the fill + clamped leverage so nothing
-// is quoted spread-blind in the meantime.
+// ── reach zones ("how far could it move?") ────────────────────────────────────
+// HONEST MODEL (SPEC §v2.1 fix #7): a single capped-loss perp + one take-profit
+// can only express a ONE-TOUCH "does it reach price X", never a true bounded
+// "lands between X and Y" (that needs a call-spread = two positions). So each
+// zone's number is the INDEPENDENT chance price REACHES into it (crosses its near
+// edge). Reaching a far zone implies the nearer ones — the events OVERLAP, they
+// are NOT a partition — so they are NOT normalized and do NOT sum to 100%.
+// Pretending they did was the dishonest part this fix removes.
 
 export interface OutcomeBucket {
   label: string;
   /** inclusive lower / exclusive upper price edge; null = open-ended. */
   lo: number | null;
   hi: number | null;
-  /** normalized probability of landing in this bucket (sums to ~1 across buckets). */
+  /** INDEPENDENT one-touch chance price reaches into this zone (NOT normalized;
+   *  zones overlap, so these do not sum to 1). */
   prob: number;
-  /** the perp that expresses "lands in this bucket". */
+  /** the perp that expresses "reaches into this zone" (one-touch to the near edge). */
   market: PricedMarket;
 }
 
@@ -350,9 +354,9 @@ export interface BucketMarket {
   buckets: OutcomeBucket[];
 }
 
-/** Build a multi-outcome market by partitioning the price axis at `edges`
- *  (ascending prices). Each bucket's raw probability comes from a spread-aware
- *  perp construction; raw probabilities are normalized to sum to 1. */
+/** Build the reach-zone row by splitting the price axis at `edges` (ascending).
+ *  Each zone's probability is the spread-aware ONE-TOUCH chance price reaches into
+ *  it (crosses the edge nearest the oracle). NOT normalized — see the note above. */
 export function bucketMarket(opts: {
   token: string;
   oracle: number;
@@ -372,22 +376,22 @@ export function bucketMarket(opts: {
   if (edges.length > 0) bounds.push({ lo: edges[edges.length - 1]!, hi: null });
 
   const raw = bounds.map((b) => {
-    // Point the perp at the bucket's centre, TP at the near edge — a one-touch
-    // proxy for the bucket (redesigned to a true bounded outcome in fix #7).
-    const centre = b.lo == null ? b.hi! * 0.99 : b.hi == null ? b.lo * 1.01 : (b.lo + b.hi) / 2;
-    const direction: Direction = centre >= oracle ? "ABOVE" : "BELOW";
-    const strike = b.lo == null ? b.hi! : b.hi == null ? b.lo : (direction === "ABOVE" ? b.lo : b.hi);
+    // Which side of the oracle the zone sits on, and the NEAR edge — the threshold
+    // price crosses to reach INTO the zone. One-touch to that edge = the reach.
+    const zoneRef = b.lo == null ? b.hi! : b.hi == null ? b.lo : (b.lo + b.hi) / 2;
+    const direction: Direction = zoneRef >= oracle ? "ABOVE" : "BELOW";
+    const nearEdge = direction === "ABOVE" ? (b.lo ?? b.hi!) : (b.hi ?? b.lo!);
     const leverage = clampLeverage(LIQ_FACTOR / (FAR_MOVE_PCT[tf] / 100), spread, opts.maxLeverage, floor);
-    const m = priceMarket({ token, direction, oracle, spread, leverage, strike, timeframe: tf });
+    const m = priceMarket({ token, direction, oracle, spread, leverage, strike: nearEdge, timeframe: tf });
     return { b, m };
   });
 
-  const sum = raw.reduce((s, r) => s + r.m.prob, 0) || 1;
+  // NO normalization — each is an independent reach chance (the zones overlap).
   const buckets: OutcomeBucket[] = raw.map(({ b, m }) => ({
     label: bucketLabel(b.lo, b.hi),
     lo: b.lo,
     hi: b.hi,
-    prob: m.prob / sum, // normalized so the outcome distribution sums to 1
+    prob: m.prob,
     market: m,
   }));
   return { token, oracle, timeframe: tf, buckets };

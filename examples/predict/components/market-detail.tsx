@@ -17,7 +17,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { assertNoErr, validateTriggerPrice, type OpenPositionResponse } from "flash-v2";
 import {
-  bucketMarket,
   cents,
   profitUsd,
   slippageForSpread,
@@ -37,11 +36,6 @@ const MIN_STAKE = 11; // the $11-after-fees floor (RECOMMENDED_MIN_COLLATERAL_US
 
 const fmtUsd = (n: number) => `$${n.toFixed(2)}`;
 const fmtStrike = (n: number) => (n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : n.toFixed(n >= 1 ? 2 : 4));
-
-/** Five bucket edges around the live price (±0.5% / ±1.5%) → six outcomes. */
-function defaultEdges(price: number): number[] {
-  return [0.985, 0.995, 1.005, 1.015].map((m) => price * m);
-}
 
 /** The bet reconciled to the SIGNED response — the authoritative numbers the user
  *  actually signs, never the pre-trade estimate. `ok:false` blocks the commit. */
@@ -134,18 +128,6 @@ export function MarketDetail({
         : [],
     [token, price, spread, dir, tf, limits],
   );
-  const buckets = useMemo(
-    () =>
-      limits
-        ? // buckets span both sides; per-side spread is redesigned in fix #7.
-          bucketMarket({
-            token, oracle: price, spread: limits.spreadLongPct, maxLeverage: limits.maxLeverage,
-            minLeverage: limits.minLeverage, timeframe: tf, edges: defaultEdges(price),
-          })
-        : null,
-    [token, price, tf, limits],
-  );
-
   const [picked, setPicked] = useState<PricedMarket | null>(null);
   const active = picked && picked.direction === dir ? picked : ladder[Math.floor(ladder.length / 2)] ?? null;
   const [stake, setStake] = useState("25");
@@ -283,22 +265,6 @@ export function MarketDetail({
                 );
               })}
             </div>
-
-            {/* multi-outcome buckets — where does it land? */}
-            {buckets && (
-              <div className="flex flex-col gap-1.5">
-                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-faint">where does it land?</p>
-                {buckets.buckets.map((b) => (
-                  <div key={b.label} className="flex items-center gap-3 rounded-[12px] border border-edge px-3.5 py-2">
-                    <span className="w-28 shrink-0 font-mono text-[12px] tabular-nums text-ink">{b.label}</span>
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
-                      <div className="h-full rounded-full bg-ink/40" style={{ width: `${Math.round(b.prob * 100)}%` }} />
-                    </div>
-                    <span className="w-10 shrink-0 text-right font-mono text-[12px] font-semibold tabular-nums text-dim">{Math.round(b.prob * 100)}%</span>
-                  </div>
-                ))}
-              </div>
-            )}
 
             {/* the buy ticket */}
             {active && (

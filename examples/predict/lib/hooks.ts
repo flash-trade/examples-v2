@@ -14,6 +14,7 @@ import {
   type BasketSnapshot,
   type PositionMetrics,
   type PriceInfo,
+  type TokenInfo,
 } from "flash-v2";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { baseConnection, flash } from "./flash";
@@ -99,15 +100,72 @@ export interface MarketLimits {
 // Flash's tiers carry a ×1.1 buffer over the advertised 10x/50x/100x/500x).
 const LEVERAGE_SCALE = 10_000;
 
-/**
- * Live leverage bounds for a market symbol: token config → custody (by mint)
- * → pricing.minInitialLeverage/maxInitialLeverage. Cached per session; null
- * until loaded (callers keep a conservative fallback meanwhile). Same
- * philosophy as useMarkets: Flash changes limits → the UI follows, no code.
- */
-const limitsCache = new Map<string, MarketLimits>();
-let custodyPricing: Map<string, { min: number; max: number; spreadL: number; spreadS: number }> | null = null;
+type CustodyPricing = { min: number; max: number; spreadL: number; spreadS: number };
 
+// ── one parse path, shared by the single + bulk hooks (the spread is a
+// fund-critical number — it must be derived in exactly ONE place so the grid and
+// the detail can never disagree). Custody + tokens are each fetched ONCE and
+// deduped via in-flight promises, so N simultaneous cards trigger one of each.
+const limitsCache = new Map<string, MarketLimits>();
+let custodyPricing: Map<string, CustodyPricing> | null = null;
+let custodyInFlight: Promise<Map<string, CustodyPricing> | null> | null = null;
+let tokensPromise: Promise<TokenInfo[]> | null = null;
+
+async function loadCustodyPricing(): Promise<Map<string, CustodyPricing> | null> {
+  if (custodyPricing && custodyPricing.size > 0) return custodyPricing;
+  if (custodyInFlight) return custodyInFlight;
+  custodyInFlight = (async () => {
+    try {
+      const res = await fetch(`${flash.network.apiBase}/raw/custodies`);
+      const json = (await res.json()) as
+        | Array<{ account?: { tokenMint?: string; pricing?: { minInitialLeverage?: number; maxInitialLeverage?: number; tradeSpreadLong?: number; tradeSpreadShort?: number } } }>
+        | { custodies?: unknown };
+      const arr = Array.isArray(json) ? json : [];
+      const map = new Map<string, CustodyPricing>();
+      for (const c of arr) {
+        const a = c.account;
+        // the custody's token field is `tokenMint` (NOT `mint`)
+        if (a?.tokenMint && a.pricing?.maxInitialLeverage) {
+          map.set(a.tokenMint, {
+            min: (a.pricing.minInitialLeverage ?? LEVERAGE_SCALE) / LEVERAGE_SCALE,
+            max: a.pricing.maxInitialLeverage / LEVERAGE_SCALE,
+            // tradeSpread is in bps×1 (1000 = 10%): ÷1e4 → fraction
+            spreadL: (a.pricing.tradeSpreadLong ?? 0) / 10_000,
+            spreadS: (a.pricing.tradeSpreadShort ?? 0) / 10_000,
+          });
+        }
+      }
+      // only cache a USEFUL result — an empty map must not wedge "loading…"
+      if (map.size > 0) custodyPricing = map;
+      return custodyPricing;
+    } catch {
+      return custodyPricing; // fallback stays null; next call retries
+    } finally {
+      custodyInFlight = null;
+    }
+  })();
+  return custodyInFlight;
+}
+
+function loadTokens(): Promise<TokenInfo[]> {
+  return (tokensPromise ??= flash.tokens().catch((e) => ((tokensPromise = null), Promise.reject(e))));
+}
+
+/** token config → custody (by mint) → leverage bounds + per-side spreads. The
+ *  SINGLE place a symbol becomes MarketLimits. Returns null when the custody
+ *  isn't found (callers keep a conservative fallback / loading state meanwhile). */
+function buildLimits(symbol: string, pricing: Map<string, CustodyPricing>, tokens: TokenInfo[]): MarketLimits | null {
+  const mint = tokens.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase())?.mintKey;
+  const p = mint ? pricing.get(mint) : undefined;
+  if (!p) return null;
+  return { minLeverage: Math.max(1.1, p.min), maxLeverage: p.max, spreadLongPct: p.spreadL, spreadShortPct: p.spreadS };
+}
+
+/**
+ * Live leverage bounds + spreads for ONE market symbol. Cached per session; null
+ * until loaded. Same philosophy as useMarkets: Flash changes limits → the UI
+ * follows, no code.
+ */
 export function useMarketLimits(marketSymbol: string): MarketLimits | null {
   const [limits, setLimits] = useState<MarketLimits | null>(limitsCache.get(marketSymbol) ?? null);
   useEffect(() => {
@@ -117,41 +175,12 @@ export function useMarketLimits(marketSymbol: string): MarketLimits | null {
     let dead = false;
     void (async () => {
       try {
-        if (!custodyPricing || custodyPricing.size === 0) {
-          const res = await fetch(`${flash.network.apiBase}/raw/custodies`);
-          const json = (await res.json()) as
-            | Array<{ account?: { tokenMint?: string; pricing?: { minInitialLeverage?: number; maxInitialLeverage?: number; tradeSpreadLong?: number; tradeSpreadShort?: number } } }>
-            | { custodies?: unknown };
-          const arr = Array.isArray(json) ? json : [];
-          const map = new Map<string, { min: number; max: number; spreadL: number; spreadS: number }>();
-          for (const c of arr) {
-            const a = c.account;
-            // the custody's token field is `tokenMint` (NOT `mint`)
-            if (a?.tokenMint && a.pricing?.maxInitialLeverage) {
-              map.set(a.tokenMint, {
-                min: (a.pricing.minInitialLeverage ?? LEVERAGE_SCALE) / LEVERAGE_SCALE,
-                max: a.pricing.maxInitialLeverage / LEVERAGE_SCALE,
-                // tradeSpread is in bps×1 (1000 = 10%): ÷1e4 → fraction
-                spreadL: (a.pricing.tradeSpreadLong ?? 0) / 10_000,
-                spreadS: (a.pricing.tradeSpreadShort ?? 0) / 10_000,
-              });
-            }
-          }
-          // only cache a USEFUL result — an empty map must not wedge "loading…"
-          if (map.size > 0) custodyPricing = map;
-        }
-        if (!custodyPricing) return;
-        const tokens = await flash.tokens();
+        const pricing = await loadCustodyPricing();
+        if (dead || !pricing) return;
+        const tokens = await loadTokens();
         if (dead) return;
-        const mint = tokens.find((t) => t.symbol.toUpperCase() === marketSymbol.toUpperCase())?.mintKey;
-        const p = mint ? custodyPricing.get(mint) : undefined;
-        if (p) {
-          const out: MarketLimits = {
-            minLeverage: Math.max(1.1, p.min),
-            maxLeverage: p.max,
-            spreadLongPct: p.spreadL,
-            spreadShortPct: p.spreadS,
-          };
+        const out = buildLimits(marketSymbol, pricing, tokens);
+        if (out) {
           limitsCache.set(marketSymbol, out);
           setLimits(out);
         }
@@ -160,6 +189,42 @@ export function useMarketLimits(marketSymbol: string): MarketLimits | null {
     return () => { dead = true; };
   }, [marketSymbol]);
   return limits;
+}
+
+/**
+ * Live limits for MANY symbols at once (the Discover grid). Shares the deduped
+ * custody + tokens fetches and the one `buildLimits` path with useMarketLimits,
+ * so a card and the detail it opens always price through the identical spread.
+ * Returns a Map keyed by symbol; absent until a symbol's custody resolves.
+ */
+export function useAllMarketLimits(symbols: string[]): Map<string, MarketLimits> {
+  const key = symbols.join(",");
+  const seed = () => {
+    const m = new Map<string, MarketLimits>();
+    for (const s of symbols) { const c = limitsCache.get(s); if (c) m.set(s, c); }
+    return m;
+  };
+  const [map, setMap] = useState<Map<string, MarketLimits>>(seed);
+  useEffect(() => {
+    let dead = false;
+    void (async () => {
+      try {
+        const pricing = await loadCustodyPricing();
+        if (dead || !pricing) return;
+        const tokens = await loadTokens();
+        if (dead) return;
+        const next = new Map<string, MarketLimits>();
+        for (const s of symbols) {
+          const out = limitsCache.get(s) ?? buildLimits(s, pricing, tokens);
+          if (out) { limitsCache.set(s, out); next.set(s, out); }
+        }
+        if (next.size > 0) setMap(next);
+      } catch { /* keep last good map; next change retries */ }
+    })();
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return map;
 }
 
 // ── owner snapshot stream ────────────────────────────────────────────────────

@@ -10,6 +10,7 @@
 import { useMemo, useState } from "react";
 import { TIMEFRAMES, type TimeframeId } from "@/lib/payoff";
 import { usePredictMarkets } from "@/lib/use-markets";
+import { useAllMarketLimits } from "@/lib/hooks";
 import type { ActiveSigner } from "@/lib/signer";
 import { MarketCard } from "./market-card";
 import { MarketDetail } from "./market-detail";
@@ -28,6 +29,7 @@ export function Discover({
   onOpen?: (token: string, price: number, tf: TimeframeId) => void;
 }) {
   const { rows, categories, loading, error } = usePredictMarkets();
+  const limitsBySymbol = useAllMarketLimits(useMemo(() => rows.map((r) => r.token), [rows]));
   const [cat, setCat] = useState("All");
   const [tf, setTf] = useState<TimeframeId>("1h");
   const [query, setQuery] = useState("");
@@ -111,6 +113,7 @@ export function Discover({
             token={r.token}
             price={r.price}
             timeframe={tf}
+            limits={limitsBySymbol.get(r.token) ?? null}
             onOpen={() => {
               setSelected({ token: r.token, price: r.price, tf });
               onOpen?.(r.token, r.price, tf);

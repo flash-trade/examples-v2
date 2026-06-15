@@ -136,7 +136,7 @@ export function MarketDetail({
   );
   const [picked, setPicked] = useState<PricedMarket | null>(null);
   const active = picked && picked.direction === dir ? picked : ladder[Math.floor(ladder.length / 2)] ?? null;
-  const [stake, setStake] = useState("25");
+  const [stake, setStake] = useState(String(MIN_STAKE));
 
   const stakeUsd = Math.max(0, Number(stake.replace(/[^0-9.]/g, "")) || 0);
   const tooSmall = stakeUsd > 0 && stakeUsd < MIN_STAKE;
@@ -306,11 +306,34 @@ export function MarketDetail({
 
                 <label className="glass-strong flex items-center justify-between rounded-[12px] px-3.5 py-2.5">
                   <span className="text-[12px] text-dim">Stake</span>
-                  <span className="flex items-baseline gap-1">
-                    <span className="font-mono text-sm text-faint">$</span>
-                    <input value={stake} onChange={(e) => setStake(e.target.value)} inputMode="decimal" className="w-20 bg-transparent text-right font-mono text-[16px] tabular-nums text-ink outline-none" />
+                  <span className="flex items-center gap-2">
+                    {availableUsd != null && availableUsd > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setStake(String(Math.floor(availableUsd * 100) / 100))}
+                        title="Stake your full available balance"
+                        className="rounded-full border border-edge px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-dim transition-colors hover:border-edge2 hover:text-ink"
+                      >
+                        max
+                      </button>
+                    )}
+                    <span className="flex items-baseline gap-1">
+                      <span className="font-mono text-sm text-faint">$</span>
+                      <input
+                        value={stake}
+                        onChange={(e) => setStake(e.target.value.replace(/[^0-9.]/g, ""))}
+                        inputMode="decimal"
+                        placeholder={String(MIN_STAKE)}
+                        aria-label="Stake in USDC"
+                        className="w-20 bg-transparent text-right font-mono text-[16px] tabular-nums text-ink outline-none placeholder:text-faint"
+                      />
+                    </span>
                   </span>
                 </label>
+                <p className="-mt-1 px-0.5 text-right font-mono text-[10px] text-faint">
+                  min ${MIN_STAKE} (a bet bundles a take-profit)
+                  {availableUsd != null ? ` · you have $${availableUsd.toFixed(2)}` : ""}
+                </p>
 
                 {/* the honest numbers — locked from the same math the trade uses */}
                 <div className="grid grid-cols-3 gap-2 text-center">

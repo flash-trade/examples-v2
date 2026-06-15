@@ -10,10 +10,23 @@
 import { useMemo, useState } from "react";
 import { TIMEFRAMES, type TimeframeId } from "@/lib/payoff";
 import { usePredictMarkets } from "@/lib/use-markets";
+import type { ActiveSigner } from "@/lib/signer";
 import { MarketCard } from "./market-card";
 import { MarketDetail } from "./market-detail";
 
-export function Discover({ onOpen }: { onOpen?: (token: string, price: number, tf: TimeframeId) => void }) {
+export function Discover({
+  signer,
+  canBet,
+  onNeedWallet,
+  onPlaced,
+  onOpen,
+}: {
+  signer: ActiveSigner | null;
+  canBet: boolean;
+  onNeedWallet?: () => void;
+  onPlaced?: () => void;
+  onOpen?: (token: string, price: number, tf: TimeframeId) => void;
+}) {
   const { rows, categories, loading, error } = usePredictMarkets();
   const [cat, setCat] = useState("All");
   const [tf, setTf] = useState<TimeframeId>("1h");
@@ -116,7 +129,11 @@ export function Discover({ onOpen }: { onOpen?: (token: string, price: number, t
           token={selected.token}
           price={selected.price}
           timeframe={selected.tf}
+          signer={signer}
+          canBet={canBet}
           onClose={() => setSelected(null)}
+          onNeedWallet={onNeedWallet}
+          onPlaced={onPlaced}
         />
       )}
     </section>

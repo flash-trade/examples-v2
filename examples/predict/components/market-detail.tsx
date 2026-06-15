@@ -12,7 +12,8 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { assertNoErr } from "flash-v2";
 import {
   bucketMarket,
   cents,
@@ -24,6 +25,8 @@ import {
 } from "@/lib/markets";
 import { timeframe, type TimeframeId } from "@/lib/payoff";
 import { fmtPrice } from "@/lib/copy";
+import { flash } from "@/lib/flash";
+import type { ActiveSigner } from "@/lib/signer";
 import { TokenIcon } from "./token-icon";
 
 const MIN_STAKE = 11; // the $11-after-fees floor (RECOMMENDED_MIN_COLLATERAL_USD)
@@ -40,14 +43,20 @@ export function MarketDetail({
   token,
   price,
   timeframe: tf,
+  signer,
+  canBet,
   onClose,
-  onConfirm,
+  onNeedWallet,
+  onPlaced,
 }: {
   token: string;
   price: number;
   timeframe: TimeframeId;
+  signer: ActiveSigner | null;
+  canBet: boolean;
   onClose: () => void;
-  onConfirm?: (m: PricedMarket, stakeUsd: number) => void;
+  onNeedWallet?: () => void;
+  onPlaced?: () => void;
 }) {
   const [dir, setDir] = useState<Direction>("ABOVE");
   const ladder = useMemo(() => strikeLadder({ token, entry: price, direction: dir, timeframe: tf }), [token, price, dir, tf]);
@@ -60,6 +69,40 @@ export function MarketDetail({
   const stakeUsd = Math.max(0, Number(stake.replace(/[^0-9.]/g, "")) || 0);
   const tooSmall = stakeUsd > 0 && stakeUsd < MIN_STAKE;
   const yesCents = active ? cents(active.prob) : 0;
+
+  const [placing, setPlacing] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // ── place a real bet: a capped-loss perp with the bundled take-profit AT the
+  // strike (the win boundary); the liquidation is the knockout (lose your stake).
+  // Same openPosition→sendTrade path the existing Updown ticket proves (app.tsx).
+  const place = useCallback(async () => {
+    if (!active || !signer) return;
+    setPlacing(true);
+    setResult(null);
+    try {
+      const res = await flash.openPosition({
+        inputTokenSymbol: "USDC",
+        outputTokenSymbol: active.token,
+        inputAmountUi: stakeUsd.toFixed(2),
+        leverage: Number(active.construction.leverage.toFixed(4)),
+        tradeType: active.construction.side,
+        slippagePercentage: "1",
+        takeProfit: active.construction.takeProfitPrice.toFixed(4),
+        owner: signer.owner,
+        ...signer.tradeFields,
+      });
+      assertNoErr("open-position", res);
+      if (!res.transactionBase64) throw new Error(res.err ?? "no transaction returned");
+      const sent = await signer.sendTrade(res.transactionBase64);
+      setResult({ ok: true, msg: `Bet placed · ${sent.signature.slice(0, 8)}…` });
+      onPlaced?.();
+    } catch (e) {
+      setResult({ ok: false, msg: (e as Error).message });
+    } finally {
+      setPlacing(false);
+    }
+  }, [active, signer, stakeUsd, onPlaced]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
@@ -145,12 +188,21 @@ export function MarketDetail({
             </div>
 
             <button
-              onClick={() => onConfirm?.(active, stakeUsd)}
-              disabled={!onConfirm || stakeUsd <= 0 || tooSmall}
-              className="cta-glow-up rounded-[12px] bg-up py-3 text-[14px] font-bold text-up-deep transition-transform active:scale-[0.99] disabled:opacity-50"
+              onClick={() => (canBet ? void place() : onNeedWallet?.())}
+              disabled={placing || (canBet && (stakeUsd <= 0 || tooSmall))}
+              className={`rounded-[12px] py-3 text-[14px] font-bold transition-transform active:scale-[0.99] disabled:opacity-50 ${dir === "ABOVE" ? "cta-glow-up bg-up text-up-deep" : "cta-glow-down bg-down text-down-deep"}`}
             >
-              {tooSmall ? `Stake at least $${MIN_STAKE}` : onConfirm ? `Back ${dir === "ABOVE" ? "Above" : "Below"} · ${yesCents}¢` : "Preview — trading wires in next"}
+              {placing
+                ? "Placing…"
+                : !canBet
+                  ? "Connect & enable to bet"
+                  : tooSmall
+                    ? `Stake at least $${MIN_STAKE}`
+                    : `Back ${dir === "ABOVE" ? "Above" : "Below"} · ${yesCents}¢`}
             </button>
+            {result && (
+              <p className={`text-center font-mono text-[11px] tabular-nums ${result.ok ? "text-up" : "text-down"}`}>{result.msg}</p>
+            )}
             <p className="text-center font-mono text-[10px] leading-relaxed text-faint">
               Odds are formula-set on a real capped-loss position. You can never lose more than your stake.
             </p>

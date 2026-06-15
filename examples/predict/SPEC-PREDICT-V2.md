@@ -117,6 +117,26 @@ SOL (s=0.10) ⇒ `L ≤ 0.92/0.15 ≈ 6×`. High-spread markets are naturally lo
 
 **Re-run the 3-agent adversarial review before flipping the "don't trade real funds" banner.**
 
+## v2.1 REVIEW OUTCOME (2026-06-15) — ②–⑧ built + reviewed + remediated
+
+All of ②–⑧ (plus ①, ⑨) implemented and verified (typecheck + production build green; the odds engine verified against the **live mainnet API** to within 3% across SOL + BTC headline + full ladder). Two bugs the original audit missed were found en route: the **two-leg spread** (a TP at K exits at `K·(1−s)` — strike now grossed up by `1/(1−s)`, live-confirmed) and **buckets are inexpressible** on a single-TP perp (removed; the dead builder deleted).
+
+The mandatory 3-agent adversarial review (code-reviewer + silent-failure-hunter + money-math auditor) then ran, a 4th agent verified the fixes. Outcome — all fixed + re-verified (commits `6a648b2`, `55197e5`, F7 guard):
+
+- **C1** (CRITICAL): `reconcileBet` now calls `checkCollateralForTriggers(stake, entryFee)` — blocks a stake that drops ≤ $10 after fees (bundled TP would silently fail to place). Runs on both the review + owner quotes.
+- **C2** (CRITICAL): mount-sweep demotes a persisted `"settling"` round → `"active"` so a tab-close mid-settle can't strand a position.
+- **Settlement scoring** (CRITICAL, display/stats only): `resolveVanished` RETURNS on a failed price fetch (never brands a winner a `−stake` loss); retry-safe; rounds go `active → settled` only (no resultless `closed-elsewhere`).
+- **H1**: synchronous `useRef` lock on `doConfirm` (the async `phase` guard couldn't stop a double-tap double-open).
+- **H2**: `settleRound` skips the close if the position is already gone (no timeout double-close).
+- **F2** (HIGH latent): deleted dead `bucketMarket` + `openParamsFor` (undefended paths that rendered guaranteed-loss strikes at 97¢).
+- **F7** (the one architecture finding): `/` (Updown) and `/markets` share ONE on-chain position per market+side. The auto-settle watcher now **refuses to FULL-close a position whose on-chain size ≫ this bet's recorded size** (a blend tell-tale); the user's explicit manual `settle` is allowed through. `settleRound(round, auto)`.
+- Plus: `oracle ≤ 0 → PROB_FLOOR` (was 97¢ ceiling); cross-owner refs cleared on wallet switch; custody fetch checks `res.ok`.
+
+### Residuals (no funds at risk; documented, gate the banner)
+- **F7 guard is a heuristic** — a SMALL blend (this bet + a tiny other) under the 1.5× threshold could still be auto-closed; sub-account namespacing is the complete fix. A blended bet past expiry shows `settling…` until manually settled or the blend clears.
+- **Vanish-scoring is a mark-vs-strike inference** — the exact realized win/lose is the on-chain receipt; a sharp reversal between vanish and poll can still misread the card (the `−stake`-on-null case is fixed).
+- **Banner stays UP.** Before flipping it: re-verify the F7 guard + the residuals are acceptable, and decide whether the two example apps may share a wallet (the cleanest fix is per-app sub-accounts).
+
 ## Verification bar (every phase)
 
 `bun run --cwd examples/predict typecheck` and `build` must stay green. Mainnet, real funds — no shortcuts. Adversarial review before anything is called done.

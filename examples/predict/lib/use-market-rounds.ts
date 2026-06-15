@@ -109,7 +109,7 @@ export function useMarketRounds(
   // Close a still-open position at mark (expiry). Explicit FULL close ("0" — the
   // 97% trap never applies); the result is the PnL the user was watching.
   const settleRound = useCallback(
-    async (round: Round) => {
+    async (round: Round, auto = false) => {
       if (inflight.current.has(round.id) || !signer) return;
       if (Date.now() < (retryAt.current.get(round.id) ?? 0)) return;
       inflight.current.add(round.id);
@@ -125,6 +125,21 @@ export function useMarketRounds(
         inflight.current.delete(round.id);
         void resolveVanished(round);
         return;
+      }
+      // F7 guard: on AUTO-settle, refuse to FULL-close a position whose on-chain
+      // size is far larger than THIS bet recorded — it's BLENDED with another
+      // position (the same market+side opened in the other app, /, on this wallet;
+      // Flash keeps ONE position per market+side). A full close would settle funds
+      // that aren't this bet's. The user's EXPLICIT manual settle is allowed
+      // through; auto leaves it "active" until the shared position clears.
+      if (auto) {
+        const onChainSize = Number(metrics.sizeUsdUi) || 0;
+        const roundSize = round.quote.sizeUsd || 0;
+        if (roundSize > 0 && onChainSize > roundSize * 1.5) {
+          inflight.current.delete(round.id);
+          retryAt.current.set(round.id, Date.now() + SETTLE_RETRY_MS);
+          return;
+        }
       }
       setRounds((rs) => withStatus(rs, round.id, "settling"));
       try {
@@ -161,9 +176,10 @@ export function useMarketRounds(
 
   const recon = useMemo(() => reconcile(rounds, snapshot, now), [rounds, snapshot, now]);
 
-  // Expired but still open → settle at mark.
+  // Expired but still open → AUTO-settle at mark (F7-guarded against closing a
+  // position blended with the other app's bet).
   useEffect(() => {
-    for (const r of recon.toSettle) void settleRound(r);
+    for (const r of recon.toSettle) void settleRound(r, true);
   }, [recon, settleRound]);
 
   // Vanished without our close → score it (retry-safe win/lose inference).

@@ -24,8 +24,9 @@ import { useBalances, useBasketBalance, useUsdcMint } from "@/lib/hooks";
 import { loadSession, type LoadedSession } from "@/lib/session";
 import { makeSessionSigner } from "@/lib/signer";
 import { StreamProvider, useStream } from "@/lib/stream";
+import { useMarketRounds } from "@/lib/use-market-rounds";
+import { Bets } from "./bets";
 import { Discover } from "./discover";
-import { Portfolio } from "./portfolio";
 
 export function MarketsApp() {
   const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
@@ -56,7 +57,6 @@ function Inner({ owner }: { owner: string | null }) {
   const balances = useBalances(owner, usdcMint);
   const basket = useBasketBalance(owner, snapshot?.basketPubkey ?? null, usdcMint);
   const inBasketUsd = basket.bal?.inBasketUsd ?? null;
-  const positions = useMemo(() => Object.values(snapshot?.positionMetrics ?? {}), [snapshot]);
 
   const [session, setSession] = useState<LoadedSession | null>(null);
   useEffect(() => {
@@ -66,6 +66,10 @@ function Inner({ owner }: { owner: string | null }) {
     () => (session && anchorWallet ? makeSessionSigner(anchorWallet, session, flash.network) : null),
     [session, anchorWallet],
   );
+
+  // Settlement engine: records each bet, auto-closes it at its deadline, and
+  // resolves win/lose. The "by <timeframe>" promise is only honest with this.
+  const { rounds, now, addRound, settleNow } = useMarketRounds(owner, snapshot, signer);
 
   // "canBet" = wallet connected + one-tap enabled. Whether THIS stake is funded
   // (≥ MIN_STAKE and ≤ available) is gated per-bet in the ticket against
@@ -160,8 +164,17 @@ function Inner({ owner }: { owner: string | null }) {
         )}
       </header>
       {note && <p className="mx-auto max-w-[1100px] px-4 text-center font-mono text-[11px] text-warn sm:px-6">{note}</p>}
-      {owner && <Portfolio positions={positions} />}
-      <Discover signer={signer} canBet={canBet} availableUsd={inBasketUsd} onNeedWallet={onNeedWallet} onPlaced={() => void basket.refresh()} />
+      {owner && <Bets rounds={rounds} snapshot={snapshot} now={now} onSettleNow={settleNow} />}
+      <Discover
+        signer={signer}
+        canBet={canBet}
+        availableUsd={inBasketUsd}
+        onNeedWallet={onNeedWallet}
+        onPlaced={(round) => {
+          addRound(round);
+          void basket.refresh();
+        }}
+      />
     </main>
   );
 }

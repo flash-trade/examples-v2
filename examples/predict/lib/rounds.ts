@@ -48,6 +48,11 @@ export interface Round {
   result?: RoundResult;
   /** The user saw and dismissed the result card (ack gates new rounds). */
   acked?: boolean;
+  /** Prediction-market: the strike / threshold the question asks about (the TP). */
+  strike?: number;
+  /** Prediction-market: reconciled profit if the bet WINS — used to score a
+   *  position that closed via its take-profit before we observed it. */
+  winProfitUsd?: number;
 }
 
 interface StoredRounds {
@@ -55,16 +60,18 @@ interface StoredRounds {
   rounds: Round[];
 }
 
-const roundsKey = (owner: string) => `predict-rounds-${owner}`;
+// Per-app store namespace: the Updown app and the /markets prediction app keep
+// SEPARATE round histories (a shared key would cross-contaminate reconciliation).
+const roundsKey = (owner: string, prefix = "predict-rounds") => `${prefix}-${owner}`;
 
-export function loadRounds(owner: string): Round[] {
+export function loadRounds(owner: string, prefix?: string): Round[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(roundsKey(owner));
+    const raw = window.localStorage.getItem(roundsKey(owner, prefix));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as StoredRounds;
     if (parsed.v !== SCHEMA_VERSION || !Array.isArray(parsed.rounds)) {
-      window.localStorage.removeItem(roundsKey(owner));
+      window.localStorage.removeItem(roundsKey(owner, prefix));
       return [];
     }
     return parsed.rounds;
@@ -73,10 +80,10 @@ export function loadRounds(owner: string): Round[] {
   }
 }
 
-export function saveRounds(owner: string, rounds: Round[]): void {
+export function saveRounds(owner: string, rounds: Round[], prefix?: string): void {
   if (typeof window === "undefined") return;
   const stored: StoredRounds = { v: SCHEMA_VERSION, rounds };
-  window.localStorage.setItem(roundsKey(owner), JSON.stringify(stored));
+  window.localStorage.setItem(roundsKey(owner, prefix), JSON.stringify(stored));
 }
 
 export function newRoundId(): string {

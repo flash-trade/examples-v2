@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 import { TIMEFRAMES, type TimeframeId } from "@/lib/payoff";
 import { usePredictMarkets } from "@/lib/use-markets";
 import { useAllMarketLimits } from "@/lib/hooks";
+import type { Round } from "@/lib/rounds";
 import type { ActiveSigner } from "@/lib/signer";
 import { MarketCard } from "./market-card";
 import { MarketDetail } from "./market-detail";
@@ -28,7 +29,7 @@ export function Discover({
   /** USDC available to bet (gates stake ≤ balance in the ticket). */
   availableUsd: number | null;
   onNeedWallet?: () => void;
-  onPlaced?: () => void;
+  onPlaced?: (round: Round) => void;
   onOpen?: (token: string, price: number, tf: TimeframeId) => void;
 }) {
   const { rows, categories, loading, error } = usePredictMarkets();

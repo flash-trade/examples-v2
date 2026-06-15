@@ -26,7 +26,8 @@ import {
   type PricedMarket,
 } from "@/lib/markets";
 import { useMarketLimits } from "@/lib/hooks";
-import { timeframe, type TimeframeId } from "@/lib/payoff";
+import { lockedQuoteFrom, timeframe, type TimeframeId } from "@/lib/payoff";
+import { newRoundId, type Round } from "@/lib/rounds";
 import { calmError, fmtPrice } from "@/lib/copy";
 import { flash } from "@/lib/flash";
 import type { ActiveSigner } from "@/lib/signer";
@@ -110,7 +111,7 @@ export function MarketDetail({
   availableUsd: number | null;
   onClose: () => void;
   onNeedWallet?: () => void;
-  onPlaced?: () => void;
+  onPlaced?: (round: Round) => void;
 }) {
   const limits = useMarketLimits(token);
   const [dir, setDir] = useState<Direction>("ABOVE");
@@ -205,10 +206,26 @@ export function MarketDetail({
       }
       if (!res.transactionBase64) throw new Error(res.err ?? "no transaction returned");
       const sent = await signer.sendTrade(res.transactionBase64);
+      // Record the bet so the settlement engine can run its clock + resolve it.
+      const lev = active.construction.leverage;
+      const round: Round = {
+        id: newRoundId(),
+        market: active.token,
+        side: active.construction.side,
+        stakeUsd,
+        leverage: lev,
+        timeframe: tf,
+        placedAt: Date.now(),
+        expiresAt: Date.now() + timeframe(tf).ms,
+        quote: lockedQuoteFrom(res, stakeUsd, lev, active.construction.side),
+        status: "active",
+        strike: active.construction.takeProfitPrice,
+        winProfitUsd: recon.profitUsd,
+      };
       setResult({ ok: true, msg: `Bet placed · ${sent.signature.slice(0, 8)}…` });
       setReview(null);
       setPhase("idle");
-      onPlaced?.();
+      onPlaced?.(round);
     } catch (e) {
       setTicketError(calmError(e));
       setPhase("review");
@@ -345,7 +362,8 @@ export function MarketDetail({
                   </>
                 )}
                 <p className="text-center font-mono text-[10px] leading-relaxed text-faint">
-                  Odds are formula-set on a real capped-loss position. You can never lose more than your stake.
+                  Odds are formula-set on a real capped-loss position. Wins if {token} reaches the strike before the deadline;
+                  otherwise it closes at the deadline price. You can never lose more than your stake.
                 </p>
               </div>
             )}

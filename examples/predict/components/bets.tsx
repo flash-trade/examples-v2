@@ -4,7 +4,7 @@
 // never the indexer pnl) + a countdown to the deadline + a manual settle; SETTLED
 // bets show WON/LOST. The position is the truth — the round adds the framing. The
 // settlement engine (useMarketRounds) auto-closes at the deadline; "settle" is the
-// manual override. Marks come from one polled /v2/prices.
+// manual override. Marks come from one polled /prices.
 // ─────────────────────────────────────────────────────────────────────────────
 
 "use client";

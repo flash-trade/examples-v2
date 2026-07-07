@@ -43,7 +43,7 @@ Each entry below is a real sharp edge of building on Flash V2, written as **symp
 ## 7. The WS sends two frame types — merge them or go stale
 
 **Symptom:** PnL updates but orders/basket bytes freeze (or vice versa).
-**Why:** `/v2/owner/{owner}/ws` sends `{type:"basket"}` (full snapshot, on real on-chain change) and `{type:"metrics"}` (positions-only, every oracle tick). Metrics frames do **not** include orders.
+**Why:** `/owner/{owner}/ws` sends `{type:"basket"}` (full snapshot, on real on-chain change) and `{type:"metrics"}` (positions-only, every oracle tick). Metrics frames do **not** include orders.
 **Fix:** fold `metrics` into the last `basket` state — `subscribeOwner()` does the merge for you.
 
 ## 8. WS connection limits are real

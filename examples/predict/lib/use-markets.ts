@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // lib/use-markets.ts — live market rows for the Discover grid.
-// One bulk /v2/tokens (static per session) + a polled /v2/prices; each tradeable
+// One bulk /tokens (static per session) + a polled /prices; each tradeable
 // token becomes a row {symbol, category, live price} the card prices into a
 // YES/NO question via lib/markets.ts. Category taxonomy mirrors the picker's
 // (Pyth-ticker prefix) and is HIDDEN unless most tokens classify — a partial

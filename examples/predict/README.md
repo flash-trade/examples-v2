@@ -4,7 +4,7 @@
 
 ## What you'll build
 
-A single-screen price-call game: pick a market (live from `/v2/tokens`), pick UP or DOWN, pick a timeframe, stake USDC. The ticket shows your numbers *before* you sign — payoff per 1% move, break-even, knockout level, max loss (= your stake) — locks them at commit, and settles the round from your browser at expiry. Wins land in your basket; history keeps the receipts.
+A single-screen price-call game: pick a market (live from `/tokens`), pick UP or DOWN, pick a timeframe, stake USDC. The ticket shows your numbers *before* you sign — payoff per 1% move, break-even, knockout level, max loss (= your stake) — locks them at commit, and settles the round from your browser at expiry. Wins land in your basket; history keeps the receipts.
 
 ## What's tricky here
 
@@ -31,12 +31,12 @@ Timeframe → payout profiles: **5m → ×5, 15m → ×3.3, 1h → ×2**, clampe
 
 | Endpoint | Why |
 |---|---|
-| `GET /v2/tokens` | live market list (never hardcoded) |
-| `GET /v2/prices/{symbol}` | ticket price + live PnL mark |
+| `GET /tokens` | live market list (never hardcoded) |
+| `GET /prices/{symbol}` | ticket price + live PnL mark |
 | `POST open-position` (no `owner`) | the free quote at the review gate |
 | `POST open-position` | the round itself (session-signed → ER RPC) |
 | `POST close-position` (`"0"`) | settlement — explicit FULL close |
-| `GET /v2/owner/{owner}/ws` | live positions (one shared `subscribeOwner`) |
+| `GET /owner/{owner}/ws` | live positions (one shared `subscribeOwner`) |
 | `init-basket` / `init-deposit-ledger` / `delegate-basket` / `deposit-direct` | Enable + deposit (base chain) |
 | `request-withdrawal` / `execute-withdrawal` | two-phase exit (base chain) |
 
@@ -61,6 +61,6 @@ This is an open-source example. Before running it as a *service* for other peopl
 - **Jurisdictions are your problem.** Comparable products geo-fence: PancakeSwap Prediction hard-blocks restricted regions (HTTP 451), dYdX/Hyperliquid block US/UK/Canada IPs and prohibit VPN circumvention in their ToU. Several countries classify prediction-style products as gambling (Singapore, Indonesia, Spain, others). Get advice, geofence accordingly, and put a Restricted-Persons clause in your terms.
 - **Adopt the loss-disclosure banner.** ESMA/FCA require "X% of retail accounts lose money" for CFD-like retail products; this app ships a voluntary version in the footer. Keep it.
 - **Protect your RPC key.** `NEXT_PUBLIC_BASE_RPC` ships in the browser bundle — use a domain-restricted key, or better, a server-side proxy (e.g. Helius's one-click worker). Add a fallback provider; map 429s to calm copy (already done in `lib/copy.ts`).
-- **Add error monitoring** (Sentry + source maps) and uptime checks on `https://flashapi.trade/v2/health`.
+- **Add error monitoring** (Sentry + source maps) and uptime checks on `https://flashapi.trade/health`.
 - **Keeper settlement.** Client-side settlement is honest but depends on the user returning. A production service should run a keeper that closes expired rounds server-side — that requires a delegated signing design (users' session keys must never leave their browser; consider per-round TP/SL brackets via `place-tp-sl` as a chain-side backstop instead).
 - **Known future work:** touch-mode rounds (TP/SL bracket = near-binary payoff, `validateTriggerPrice` + the $11 floor already enforced), shared leaderboards (needs an indexer), Mobile Wallet Adapter flows for Android/iOS.

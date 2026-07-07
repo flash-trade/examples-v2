@@ -59,7 +59,7 @@ You are probably here because someone said "build me a tap-trading app on
 Flash V2". The complete known-good recipe:
 
 1. **Network = mainnet.** Flash V2 is live on Solana mainnet
-   (`https://flashapi.trade/v2`). Real funds — default position sizes small.
+   (`https://flashapi.trade`). Real funds — default position sizes small.
 2. **Env (`examples/tap-trade/.env.local`, gitignored):** copy
    `.env.example`, then set your own CORS-friendly RPC (a free helius.dev /
    triton.one key) as `NEXT_PUBLIC_BASE_RPC`; it ships in the browser bundle,
@@ -74,7 +74,7 @@ Flash V2". The complete known-good recipe:
    deposit/withdraw actions with a user-typed amount and a dedicated wallet
    approval (`examples/tap-trade/lib/funds.ts`, GOTCHAS §19). Never bundle a
    transfer into a convenience flow; never display an unlabeled balance.
-5. **Markets are dynamic:** `GET /v2/tokens` is Flash's live config (every
+5. **Markets are dynamic:** `GET /tokens` is Flash's live config (every
    non-stable token is a market — SOL, BTC, ETH, ZEC, HYPE, equities…). Read
    it at runtime; never hardcode the list.
 6. **Withdraw is two steps:** `request-withdrawal` → `execute-withdrawal`

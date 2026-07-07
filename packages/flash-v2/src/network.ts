@@ -9,7 +9,7 @@
 /** Everything the client needs to talk to Flash V2. */
 export interface NetworkConfig {
   name: "mainnet";
-  /** Hosted Flash V2 REST base, INCLUDING the /v2 suffix. */
+  /** Hosted Flash V2 REST base. No path suffix — the API serves at the root. */
   apiBase: string;
   /** Ephemeral Rollup RPC — submit TRADING txs here (open/close/triggers/…). */
   erRpc: string;
@@ -19,7 +19,7 @@ export interface NetworkConfig {
 
 export const MAINNET: NetworkConfig = {
   name: "mainnet",
-  apiBase: "https://flashapi.trade/v2",
+  apiBase: "https://flashapi.trade",
   erRpc: "https://flash.magicblock.xyz",
   baseRpc: "https://api.mainnet-beta.solana.com",
 };

@@ -10,7 +10,7 @@ Clone to your first ephemeral-rollup trade in minutes. Mainnet — real funds.
 
 [![CI](https://github.com/flash-trade/examples-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/flash-trade/examples-v2/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat)](./LICENSE)
-[![API](https://img.shields.io/badge/API-live-fbbf24?style=flat)](https://flashapi.trade/v2/health)
+[![API](https://img.shields.io/badge/API-live-fbbf24?style=flat)](https://flashapi.trade/health)
 [![Network](https://img.shields.io/badge/mainnet-default-3b82f6?style=flat)](#networks)
 [![Solana](https://img.shields.io/badge/Solana-perpetuals-9945FF?style=flat&logo=solana)](https://flash.trade)
 [![MagicBlock](https://img.shields.io/badge/MagicBlock-Ephemeral_Rollups-a855f7?style=flat)](https://docs.magicblock.gg)
@@ -30,7 +30,7 @@ Clone to your first ephemeral-rollup trade in minutes. Mainnet — real funds.
 No clone, no auth — the API is live right now:
 
 ```bash
-curl https://flashapi.trade/v2/prices/SOL
+curl https://flashapi.trade/prices/SOL
 ```
 
 Then make it yours:
@@ -115,7 +115,7 @@ Mainnet. Real funds — size positions accordingly.
 
 | | |
 |---|---|
-| V2 API | `https://flashapi.trade/v2` |
+| V2 API | `https://flashapi.trade` |
 | ER RPC (trading) | `https://flash.magicblock.xyz` |
 | Base RPC (setup/withdraw) | your own keyed RPC (the public one rate-limits) |
 

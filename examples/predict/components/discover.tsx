@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // components/discover.tsx — the market browser: category tabs + search +
 // timeframe + a grid of MarketCards. Browsing needs NO wallet (markets are
-// public: /v2/tokens + /v2/prices). Tapping a card hands (token, price, tf) up
+// public: /tokens + /prices). Tapping a card hands (token, price, tf) up
 // to open the detail + ticket (phase 4).
 // ─────────────────────────────────────────────────────────────────────────────
 

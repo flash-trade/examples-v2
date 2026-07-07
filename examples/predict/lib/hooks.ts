@@ -62,7 +62,7 @@ export function usePrice(symbol: string, intervalMs = 1000): {
 }
 
 /**
- * The tradeable market list, LIVE from Flash's own config (`GET /v2/tokens` —
+ * The tradeable market list, LIVE from Flash's own config (`GET /tokens` —
  * CDN-driven and hot-reloaded server-side): every non-stable token in the
  * active pool is a market. New listings appear here automatically.
  * Returns null until loaded (callers keep a static fallback meanwhile).

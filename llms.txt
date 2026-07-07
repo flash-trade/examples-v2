@@ -2,7 +2,7 @@
 
 > TypeScript starter for Flash Trade V2 — perpetual futures on a MagicBlock Ephemeral Rollup (Solana), consumed entirely through a hosted REST API. Trades confirm in ~30–50 ms on the rollup; account setup/withdrawal settle on the Solana base chain. Mainnet — real funds. The typed client, signing helpers, safety guards, and live-state streaming are included.
 
-Key facts: the V2 API is the only public surface (no public SDK). Transactions come back partially signed, base64-encoded — sign the owner slot and submit (trading → ER RPC, setup/withdrawal → base RPC; never replace the blockhash). The API base is `https://flashapi.trade/v2`.
+Key facts: the V2 API is the only public surface (no public SDK). Transactions come back partially signed, base64-encoded — sign the owner slot and submit (trading → ER RPC, setup/withdrawal → base RPC; never replace the blockhash). The API base is `https://flashapi.trade`.
 
 ## Docs
 

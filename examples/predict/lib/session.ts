@@ -23,7 +23,7 @@ export const SESSION_KEYS_PROGRAM = new PublicKey("KeyspM2ssCJbqUhQ4k7sveSiY4Wjn
 /**
  * magic-trade (Flash V2 on MagicBlock) program — the session target.
  * Mainnet: FTv2RxXarPfNta45HTTMVaGvjzsGg27FXJ3hEKWBhrzV
- * (verified by decoding a mainnet init-basket transaction from /v2/transaction-builder)
+ * (verified by decoding a mainnet init-basket transaction from /transaction-builder)
  */
 /** magic-trade program (mainnet) — decoded from live builder txs. */
 export const MAGIC_TRADE_PROGRAM = new PublicKey("FTv2RxXarPfNta45HTTMVaGvjzsGg27FXJ3hEKWBhrzV");

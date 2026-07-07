@@ -32,13 +32,13 @@ export interface OwnerStream {
 }
 
 /**
- * Subscribe to `/v2/owner/{owner}/ws` with reconnect + polling fallback.
+ * Subscribe to `/owner/{owner}/ws` with reconnect + polling fallback.
  *
  * Behavior:
  *  1. WS connect → first `basket` frame is your base state.
  *  2. `metrics` frames are FOLDED into that state (positions refresh ~1s).
  *  3. Drops reconnect with backoff (1s/2s/4s). After 3 failures we fall back
- *     to polling GET /v2/owner every 5s and retry the WS every 30s.
+ *     to polling GET /owner every 5s and retry the WS every 30s.
  *
  * @example
  * const stream = subscribeOwner({

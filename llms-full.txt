@@ -15,7 +15,7 @@ Clone to your first ephemeral-rollup trade in minutes — mainnet by default, ma
 
 [![CI](https://github.com/flash-trade/examples-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/flash-trade/examples-v2/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat)](./LICENSE)
-[![API](https://img.shields.io/badge/API-live-fbbf24?style=flat)](https://flashapi.trade/v2/health)
+[![API](https://img.shields.io/badge/API-live-fbbf24?style=flat)](https://flashapi.trade/health)
 [![Network](https://img.shields.io/badge/mainnet-default-3b82f6?style=flat)](#networks)
 [![Solana](https://img.shields.io/badge/Solana-perpetuals-9945FF?style=flat&logo=solana)](https://flash.trade)
 [![MagicBlock](https://img.shields.io/badge/MagicBlock-Ephemeral_Rollups-a855f7?style=flat)](https://docs.magicblock.gg)
@@ -35,7 +35,7 @@ Clone to your first ephemeral-rollup trade in minutes — mainnet by default, ma
 No clone, no auth — the API is live right now:
 
 ```bash
-curl https://flashapi.trade/v2/prices/SOL
+curl https://flashapi.trade/prices/SOL
 ```
 
 Then make it yours:
@@ -116,7 +116,7 @@ flowchart LR
 
 | | Mainnet (default) | Mainnet |
 |---|---|---|
-| V2 API | `https://flashapi.trade/v2` | `https://flashapi.trade/v2` |
+| V2 API | `https://flashapi.trade` | `https://flashapi.trade` |
 | ER RPC (trading) | `https://flash.magicblock.xyz` | `https://flash.magicblock.xyz` |
 | Base RPC (setup/withdraw) | any mainnet RPC | any mainnet RPC |
 
@@ -188,7 +188,7 @@ We hit every one of these so you don't have to. Each entry: **symptom → why �
 ## 7. The WS sends two frame types — merge them or go stale
 
 **Symptom:** PnL updates but orders/basket bytes freeze (or vice versa).
-**Why:** `/v2/owner/{owner}/ws` sends `{type:"basket"}` (full snapshot, on real on-chain change) and `{type:"metrics"}` (positions-only, every oracle tick). Metrics frames do **not** include orders.
+**Why:** `/owner/{owner}/ws` sends `{type:"basket"}` (full snapshot, on real on-chain change) and `{type:"metrics"}` (positions-only, every oracle tick). Metrics frames do **not** include orders.
 **Fix:** fold `metrics` into the last `basket` state — `subscribeOwner()` does the merge for you.
 
 ## 8. WS connection limits are real
@@ -350,7 +350,7 @@ FILE: packages/flash-v2/src/network.ts
 export interface NetworkConfig {
   /** Human label, e.g. "mainnet". */
   name: "mainnet" | "mainnet";
-  /** Hosted Flash V2 REST base, INCLUDING the /v2 suffix. */
+  /** Hosted Flash V2 REST base. No path suffix — the API serves at the root. */
   apiBase: string;
   /** Ephemeral Rollup RPC — submit TRADING txs here (open/close/triggers/…). */
   erRpc: string;
@@ -365,7 +365,7 @@ export interface NetworkConfig {
  */
 export const MAINNET: NetworkConfig = {
   name: "mainnet",
-  apiBase: "https://flashapi.trade/v2",
+  apiBase: "https://flashapi.trade",
   erRpc: "https://flash.magicblock.xyz",
   baseRpc: "https://api.mainnet-beta.solana.com",
 };
@@ -376,7 +376,7 @@ export const MAINNET: NetworkConfig = {
  */
 export const MAINNET: NetworkConfig = {
   name: "mainnet",
-  apiBase: "https://flashapi.trade/v2",
+  apiBase: "https://flashapi.trade",
   erRpc: "https://flash.magicblock.xyz",
   baseRpc: "https://api.mainnet-beta.solana.com",
 };
@@ -901,7 +901,7 @@ export interface BasketSnapshot {
   orderMetrics: Record<string, OrderMetrics>;
 }
 
-/** Live WS frames from /v2/owner/{owner}/ws — see subscribeOwner(). */
+/** Live WS frames from /owner/{owner}/ws — see subscribeOwner(). */
 export type OwnerWsMessage =
   | { type: "basket"; data: BasketSnapshot }
   | { type: "metrics"; data: Record<string, PositionMetrics> };
@@ -943,7 +943,7 @@ export interface HealthResponse {
   };
 }
 
-/** Raw Anchor-decoded account wrapper for the /v2/raw/* endpoints. */
+/** Raw Anchor-decoded account wrapper for the /raw/* endpoints. */
 export interface RawAccount<T = unknown> {
   pubkey: string;
   account: T;
@@ -1461,13 +1461,13 @@ export interface OwnerStream {
 }
 
 /**
- * Subscribe to `/v2/owner/{owner}/ws` with reconnect + polling fallback.
+ * Subscribe to `/owner/{owner}/ws` with reconnect + polling fallback.
  *
  * Behavior:
  *  1. WS connect → first `basket` frame is your base state.
  *  2. `metrics` frames are FOLDED into that state (positions refresh ~1s).
  *  3. Drops reconnect with backoff (1s/2s/4s). After 3 failures we fall back
- *     to polling GET /v2/owner every 5s and retry the WS every 30s.
+ *     to polling GET /owner every 5s and retry the WS every 30s.
  *
  * @example
  * const stream = subscribeOwner({

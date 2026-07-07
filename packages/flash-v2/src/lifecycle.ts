@@ -93,7 +93,7 @@ const mark = price ? price.priceUi : 0;
 if (price) console.log(`  ${MARKET} = $${price.priceUi} (${price.marketSession})`);
 
 const tokens = await step("tokens — symbols + MINT addresses (deposits need the mint)", () => flash.tokens());
-const collateralMint = tokens?.find((t) => t.symbol.toUpperCase() === COLLATERAL.toUpperCase())?.mintKey;
+const collateralMint = tokens?.find((t) => t.symbol.toUpperCase() === COLLATERAL.toUpperCase())?.mint;
 if (collateralMint) console.log(`  ${COLLATERAL} mint = ${collateralMint}`);
 
 // ── 1–3. One-time account setup — ALL on the BASE chain ──────────────────────

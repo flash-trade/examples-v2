@@ -461,7 +461,7 @@ export type OwnerWsMessage =
 
 export interface TokenInfo {
   symbol: string;
-  mintKey: string;
+  mint: string;
   decimals: number;
   isStable: boolean;
   isVirtual: boolean;

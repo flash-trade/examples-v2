@@ -101,7 +101,7 @@ const LEVERAGE_SCALE = 10_000;
 
 /**
  * Live leverage bounds for a market symbol: token config → custody (by mint)
- * → pricing.minInitialLeverage/maxInitialLeverage. Cached per session; null
+ * → pricing.minInitLeverage/maxInitLeverage. Cached per session; null
  * until loaded (callers keep a conservative fallback meanwhile). Same
  * philosophy as useMarkets: Flash changes limits → the UI follows, no code.
  */
@@ -120,20 +120,21 @@ export function useMarketLimits(marketSymbol: string): MarketLimits | null {
         if (!custodyPricing || custodyPricing.size === 0) {
           const res = await fetch(`${flash.network.apiBase}/raw/custodies`);
           const json = (await res.json()) as
-            | Array<{ account?: { tokenMint?: string; pricing?: { minInitialLeverage?: number; maxInitialLeverage?: number; tradeSpreadLong?: number; tradeSpreadShort?: number } } }>
+            | Array<{ account?: { mint?: string; pricing?: { minInitLeverage?: number; maxInitLeverage?: number; tradeSpreadMin?: number; tradeSpreadMax?: number } } }>
             | { custodies?: unknown };
           const arr = Array.isArray(json) ? json : [];
           const map = new Map<string, { min: number; max: number; spreadL: number; spreadS: number }>();
           for (const c of arr) {
             const a = c.account;
-            // the custody's token field is `tokenMint` (NOT `mint`)
-            if (a?.tokenMint && a.pricing?.maxInitialLeverage) {
-              map.set(a.tokenMint, {
-                min: (a.pricing.minInitialLeverage ?? LEVERAGE_SCALE) / LEVERAGE_SCALE,
-                max: a.pricing.maxInitialLeverage / LEVERAGE_SCALE,
-                // tradeSpread is in bps×1 (1000 = 10%): ÷1e4 → fraction
-                spreadL: (a.pricing.tradeSpreadLong ?? 0) / 10_000,
-                spreadS: (a.pricing.tradeSpreadShort ?? 0) / 10_000,
+            // the custody token field is `mint` (verified against the live API)
+            if (a?.mint && a.pricing?.maxInitLeverage) {
+              map.set(a.mint, {
+                min: (a.pricing.minInitLeverage ?? LEVERAGE_SCALE) / LEVERAGE_SCALE,
+                max: a.pricing.maxInitLeverage / LEVERAGE_SCALE,
+                // tradeSpreadMin = base spread, 1e6ths (100 = 0.01%): /1_000_000 -> fraction.
+            // (empirically = the small-trade fill spread; grows to tradeSpreadMax with size)
+                spreadL: (a.pricing.tradeSpreadMin ?? 0) / 1_000_000,
+                spreadS: (a.pricing.tradeSpreadMin ?? 0) / 1_000_000,
               });
             }
           }
@@ -143,7 +144,7 @@ export function useMarketLimits(marketSymbol: string): MarketLimits | null {
         if (!custodyPricing) return;
         const tokens = await flash.tokens();
         if (dead) return;
-        const mint = tokens.find((t) => t.symbol.toUpperCase() === marketSymbol.toUpperCase())?.mintKey;
+        const mint = tokens.find((t) => t.symbol.toUpperCase() === marketSymbol.toUpperCase())?.mint;
         const p = mint ? custodyPricing.get(mint) : undefined;
         if (p) {
           const out: MarketLimits = {
@@ -386,7 +387,7 @@ export function useBasketBalance(
       if (!tokenMeta.current) {
         try {
           tokenMeta.current = new Map(
-            (await flash.tokens()).map((t) => [t.mintKey, { symbol: t.symbol, decimals: t.decimals }]),
+            (await flash.tokens()).map((t) => [t.mint, { symbol: t.symbol, decimals: t.decimals }]),
           );
         } catch { tokenMeta.current = new Map(); }
       }
@@ -426,7 +427,7 @@ export function useUsdcMint(): string | null {
       .then((tokens) => {
         if (dead) return;
         const usdc = tokens.find((t) => t.symbol.toUpperCase() === "USDC");
-        setMint(usdc?.mintKey ?? null);
+        setMint(usdc?.mint ?? null);
       })
       .catch(() => { /* tokens() retried implicitly when wizard runs */ });
     return () => { dead = true; };

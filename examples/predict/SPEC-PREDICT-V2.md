@@ -46,7 +46,7 @@ Engine surface (all pure, typechecked):
 ## The UX (Kalshi/Polymarket-grade, on the existing dark glass)
 
 Screens:
-1. **Discover** — category tabs (Crypto / Stocks / FX / Commodities, from `/v2/tokens`) + search + a **market-card grid**. Card = question · big YES/NO ¢ · a YES/NO split bar · countdown · sparkline · volume-ish. (The single most important component — make it instantly scannable + clickable.)
+1. **Discover** — category tabs (Crypto / Stocks / FX / Commodities, from `/tokens`) + search + a **market-card grid**. Card = question · big YES/NO ¢ · a YES/NO split bar · countdown · sparkline · volume-ish. (The single most important component — make it instantly scannable + clickable.)
 2. **Market detail** — the question, a **probability-over-time line chart** (reuse `usePriceHistory`, plot implied prob), the strike ladder / bucket outcomes as rows, and the **buy ticket**.
 3. **Buy ticket** — YES/NO toggle, amount, **avg price (¢), shares, "To win $X", max loss = your stake**, the locked-numbers confirm ("these don't drift"). Honest, never manipulative.
 4. **Portfolio** — open positions as shares with live value (mark→implied prob), realized history, a local leaderboard/stats (inherit `stats-strip` / `history`).
@@ -65,7 +65,7 @@ Keep the existing "Void Instrument / frosted glass" base (`globals.css`, `DESIGN
 ## Build phases (sequential; subagents rate-limited until Jun 15 9am ET)
 
 1. ✅ **Odds engine** — `lib/markets.ts` (pure, typechecked).
-2. **Market model + state** — extend `lib/rounds.ts` for share/market rounds; a `useMarkets`-style hook that builds ladders/buckets from live `/v2/tokens` + `/v2/prices`; the `openParamsFor` → confirm/lock flow.
+2. **Market model + state** — extend `lib/rounds.ts` for share/market rounds; a `useMarkets`-style hook that builds ladders/buckets from live `/tokens` + `/prices`; the `openParamsFor` → confirm/lock flow.
 3. **Discover + market card** — the category/search grid + the card component (the highest-leverage UI).
 4. **Market detail + buy ticket** — prob chart + ladder/bucket rows + the YES/NO ticket with "to win $X" / max-loss.
 5. **Portfolio + settlement** — shares with live value, history, the welcome-back settle adapted to win/lose framing.

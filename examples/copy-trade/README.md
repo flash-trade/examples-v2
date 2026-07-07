@@ -24,10 +24,10 @@ A follower bot that watches any wallet's live Flash V2 positions and mirrors its
 
 | Endpoint | Why |
 |---|---|
-| `GET /v2/owner/{LEADER}` + `/ws` | the leader's live positions (the diff source) |
-| `GET /v2/owner/{follower}` | follower collateral for ratio sizing |
-| `POST /v2/transaction-builder/open-position` | mirror opens/grows |
-| `POST /v2/transaction-builder/close-position` | mirror shrinks/closes ("0" = full) |
+| `GET /owner/{LEADER}` + `/ws` | the leader's live positions (the diff source) |
+| `GET /owner/{follower}` | follower collateral for ratio sizing |
+| `POST /transaction-builder/open-position` | mirror opens/grows |
+| `POST /transaction-builder/close-position` | mirror shrinks/closes ("0" = full) |
 
 ## Run it
 

@@ -22,9 +22,9 @@ Whatever you want — this folder is the starting point. It ships doing the thre
 
 | Endpoint | Why |
 |---|---|
-| `GET /v2/prices/{symbol}` | live oracle read |
-| `POST /v2/transaction-builder/open-position` (no owner) | free quote API |
-| `GET /v2/owner/{owner}` + `/ws` | live positions via `subscribeOwner` |
+| `GET /prices/{symbol}` | live oracle read |
+| `POST /transaction-builder/open-position` (no owner) | free quote API |
+| `GET /owner/{owner}` + `/ws` | live positions via `subscribeOwner` |
 
 ## Run it
 

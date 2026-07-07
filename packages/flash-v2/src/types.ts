@@ -454,7 +454,7 @@ export interface BasketSnapshot {
   orderMetrics: Record<string, OrderMetrics>;
 }
 
-/** Live WS frames from /v2/owner/{owner}/ws — see subscribeOwner(). */
+/** Live WS frames from /owner/{owner}/ws — see subscribeOwner(). */
 export type OwnerWsMessage =
   | { type: "basket"; data: BasketSnapshot }
   | { type: "metrics"; data: Record<string, PositionMetrics> };
@@ -496,7 +496,7 @@ export interface HealthResponse {
   };
 }
 
-/** Raw Anchor-decoded account wrapper for the /v2/raw/* endpoints. */
+/** Raw Anchor-decoded account wrapper for the /raw/* endpoints. */
 export interface RawAccount<T = unknown> {
   pubkey: string;
   account: T;
